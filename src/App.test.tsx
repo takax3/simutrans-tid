@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadViewerSnapshot, refreshPositions } from './api'
@@ -18,14 +18,71 @@ const snapshot: ViewerSnapshot = {
     time: { year: 1963, month: 7, diagram_time: '03:55:00', paused: false, time_multiplier: 16 },
   },
   time: { year: 1963, month: 7, diagram_time: '03:55:00', paused: false, time_multiplier: 16 },
-  convoyMetadata: [{
-    id: 11, name: '急行11号', company_id: 5, line_id: 3,
-    waytype: 'track', vehicle_count: 4, length_carunits: 32,
+  convoyMetadata: [
+    {
+      id: 11, name: '急行11号', company_id: 5, line_id: 3,
+      waytype: 'track', vehicle_count: 4, length_carunits: 32,
+    },
+    {
+      id: 12, name: '市電12号', company_id: 5, line_id: 4,
+      waytype: 'tram', vehicle_count: 1, length_carunits: 8,
+    },
+    {
+      id: 13, name: 'バス13号', company_id: 5, line_id: null,
+      waytype: 'road', vehicle_count: 1, length_carunits: 8,
+    },
+    {
+      id: 14, name: '連絡船14号', company_id: 5, line_id: null,
+      waytype: 'water', vehicle_count: 1, length_carunits: 16,
+    },
+  ],
+  convoys: [
+    {
+      convoy_id: 11, name: '急行11号', company_id: 5, line_id: 3,
+      vehicle_count: 4, waytype: 'track', state: 'driving', state_code: 6,
+      speed_kmh: 120, x: 910, y: 613, z: 2, route_index: 15,
+    },
+    {
+      convoy_id: 12, name: '市電12号', company_id: 5, line_id: 4,
+      vehicle_count: 1, waytype: 'tram', state: 'loading', state_code: 7,
+      speed_kmh: 0, x: 800, y: 500, z: 1, route_index: 3,
+    },
+    {
+      convoy_id: 13, name: 'バス13号', company_id: 5, line_id: null,
+      vehicle_count: 1, waytype: 'road', state: 'driving', state_code: 6,
+      speed_kmh: 40, x: 700, y: 400, z: 1, route_index: 2,
+    },
+    {
+      convoy_id: 14, name: '連絡船14号', company_id: 5, line_id: null,
+      vehicle_count: 1, waytype: 'water', state: 'driving', state_code: 6,
+      speed_kmh: 20, x: 600, y: 300, z: 0, route_index: 4,
+    },
+  ],
+  stops: [{
+    id: 101, name: '中央駅', company_ids: [5],
+    position: { x: 900, y: 600, z: 2 },
+    passenger_waiting: 120, passenger_capacity: 500,
+    arrived_last_month: 3200, departed_last_month: 3100,
+  }, {
+    id: 103, name: '市役所前', company_ids: [5],
+    position: { x: 700, y: 400, z: 1 },
+    passenger_waiting: 20, passenger_capacity: 100,
+    arrived_last_month: 800, departed_last_month: 790,
   }],
-  convoys: [{
-    convoy_id: 11, name: '急行11号', company_id: 5, line_id: 3,
-    vehicle_count: 4, waytype: 'track', state: 'driving', state_code: 6,
-    speed_kmh: 120, x: 910, y: 613, z: 2, route_index: 15,
+  lines: [{
+    id: 3, name: '中央線', company_id: 5, waytype: 'track', convoy_count: 1,
+    withdraw: false, color_index: 44,
+    entries: [
+      { index: 0, position: { x: 850, y: 550, z: 2 }, stop_id: 100 },
+      { index: 1, position: { x: 900, y: 600, z: 2 }, stop_id: 101 },
+    ],
+  }, {
+    id: 4, name: '市内バス', company_id: 5, waytype: 'road', convoy_count: 1,
+    withdraw: false, color_index: 36,
+    entries: [
+      { index: 0, position: { x: 650, y: 350, z: 1 }, stop_id: 102 },
+      { index: 1, position: { x: 700, y: 400, z: 1 }, stop_id: 103 },
+    ],
   }],
 }
 
@@ -60,6 +117,7 @@ beforeEach(() => {
     epochChanged: false,
     time: snapshot.time,
     convoys: snapshot.convoys,
+    stops: snapshot.stops,
   })
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as never)
 })
@@ -180,5 +238,81 @@ describe('App', () => {
     fireEvent(viewport, pointerEvent('pointermove', 11, 50, 100, 'mouse', 2))
     expect(viewport.scrollLeft).toBe(100)
     expect(viewport).not.toHaveClass('is-dragging')
+  })
+
+  it('路線・編成・駅レイヤーを個別にON/OFFできる', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByLabelText('1500×1000の編成位置マップ')
+    const lineLayer = screen.getByRole('checkbox', { name: '路線レイヤー' })
+    const alignRoutes = screen.getByRole('checkbox', { name: '路線を駅に合わせる' })
+    const convoyLayer = screen.getByRole('checkbox', { name: '編成レイヤー' })
+    const stopLayer = screen.getByRole('checkbox', { name: '駅レイヤー' })
+    const allStops = screen.getByRole('checkbox', { name: '全駅表示' })
+
+    expect(lineLayer).toBeChecked()
+    expect(alignRoutes).toBeChecked()
+    expect(alignRoutes).toBeEnabled()
+    expect(convoyLayer).toBeChecked()
+    expect(stopLayer).toBeChecked()
+    expect(allStops).not.toBeChecked()
+    expect(allStops).toBeEnabled()
+    expect(screen.getByText('路線').closest('label')).toHaveTextContent('1')
+    await user.click(lineLayer)
+    expect(lineLayer).not.toBeChecked()
+    expect(alignRoutes).toBeDisabled()
+    expect(convoyLayer).toBeChecked()
+    expect(stopLayer).toBeChecked()
+    await user.click(stopLayer)
+    expect(stopLayer).not.toBeChecked()
+    expect(allStops).toBeDisabled()
+    expect(convoyLayer).toBeChecked()
+    await user.click(convoyLayer)
+    expect(convoyLayer).not.toBeChecked()
+  })
+
+  it('全駅表示をONにすると編成種別にかかわらず全駅を表示する', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByLabelText('1500×1000の編成位置マップ')
+    const stopLayerLabel = screen.getByText('駅').closest('label')
+    const allStops = screen.getByRole('checkbox', { name: '全駅表示' })
+
+    expect(stopLayerLabel).toHaveTextContent('1')
+    expect(allStops).not.toBeChecked()
+    await user.click(allStops)
+    expect(allStops).toBeChecked()
+    expect(stopLayerLabel).toHaveTextContent('2')
+  })
+
+  it('鉄道系だけを初期表示し、存在する他の編成種別を複数選択できる', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByLabelText('1500×1000の編成位置マップ')
+    await user.click(screen.getByText(/^編成種別/, { selector: 'summary' }))
+    const selector = within(screen.getByRole('group', { name: '表示する編成種別' }))
+    const track = selector.getByRole('checkbox', { name: '鉄道編成' })
+    const tram = selector.getByRole('checkbox', { name: '路面電車編成' })
+    const road = selector.getByRole('checkbox', { name: '自動車編成' })
+    const water = selector.getByRole('checkbox', { name: '船編成' })
+    const air = selector.getByRole('checkbox', { name: '飛行機編成' })
+
+    expect(track).toBeChecked()
+    expect(tram).toBeChecked()
+    expect(road).not.toBeChecked()
+    expect(road).toBeEnabled()
+    expect(water).toBeEnabled()
+    expect(air).toBeDisabled()
+
+    const telemetry = within(screen.getByLabelText('運行情報'))
+    expect(telemetry.getByText('CONVOYS').parentElement).toHaveTextContent('2')
+    expect(screen.getByText('路線').closest('label')).toHaveTextContent('1')
+    expect(screen.getByText('駅').closest('label')).toHaveTextContent('1')
+    await user.click(road)
+    expect(road).toBeChecked()
+    expect(telemetry.getByText('CONVOYS').parentElement).toHaveTextContent('3')
+    expect(screen.getByText('編成').closest('label')).toHaveTextContent('3')
+    expect(screen.getByText('路線').closest('label')).toHaveTextContent('2')
+    expect(screen.getByText('駅').closest('label')).toHaveTextContent('2')
   })
 })

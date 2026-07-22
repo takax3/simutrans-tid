@@ -1,10 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { loadViewerSnapshot, refreshPositions } from './api'
-import { clampZoom, findGroupAt, groupConvoysByPosition, ZOOM_STEP } from './model'
+import {
+  alignLinesToStops, clampZoom, filterStopsForLines, findGroupAt, findStopsAt,
+  groupConvoysByPosition, ZOOM_STEP,
+} from './model'
 import { drawMap } from './mapRenderer'
-import type { PositionGroup, ViewerSnapshot } from './types'
+import type { LayerVisibility, PositionGroup, Stop, ViewerSnapshot } from './types'
 
 const intervalOptions = [1_000, 2_000, 5_000, 10_000]
+const knownConvoyTypes = [
+  { value: 'track', label: '鉄道' },
+  { value: 'tram', label: '路面電車' },
+  { value: 'monorail', label: 'モノレール' },
+  { value: 'maglev', label: 'リニア' },
+  { value: 'narrowgauge', label: '狭軌' },
+  { value: 'road', label: '自動車' },
+  { value: 'water', label: '船' },
+  { value: 'air', label: '飛行機' },
+]
+const defaultConvoyTypes = new Set(['track', 'tram', 'monorail', 'maglev', 'narrowgauge'])
 
 function formatTime(snapshot: ViewerSnapshot | null): string {
   if (!snapshot) return '—'
@@ -20,8 +34,13 @@ function App() {
   const [intervalMs, setIntervalMs] = useState(5_000)
   const [zoom, setZoom] = useState(1)
   const [dragging, setDragging] = useState(false)
+  const [selectedConvoyTypes, setSelectedConvoyTypes] = useState(() => new Set(defaultConvoyTypes))
+  const [alignRoutesToStops, setAlignRoutesToStops] = useState(true)
+  const [showAllStops, setShowAllStops] = useState(false)
+  const [layers, setLayers] = useState<LayerVisibility>({ lines: true, convoys: true, stops: true })
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [hoveredGroup, setHoveredGroup] = useState<PositionGroup | null>(null)
+  const [hoveredStops, setHoveredStops] = useState<Stop[]>([])
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -36,10 +55,59 @@ function App() {
 
   zoomRef.current = zoom
 
-  const groups = useMemo(
-    () => groupConvoysByPosition(snapshot?.convoys ?? []),
-    [snapshot?.convoys],
+  const convoyTypeCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const convoy of snapshot?.convoys ?? []) {
+      counts.set(convoy.waytype, (counts.get(convoy.waytype) ?? 0) + 1)
+    }
+    return counts
+  }, [snapshot?.convoys])
+
+  const convoyTypeOptions = useMemo(() => {
+    const knownValues = new Set(knownConvoyTypes.map((option) => option.value))
+    const unknownTypes = [...convoyTypeCounts.keys()]
+      .filter((waytype) => !knownValues.has(waytype))
+      .sort()
+      .map((waytype) => ({ value: waytype, label: waytype }))
+    return [...knownConvoyTypes, ...unknownTypes]
+  }, [convoyTypeCounts])
+
+  const displayedConvoys = useMemo(
+    () => (snapshot?.convoys ?? []).filter((convoy) => selectedConvoyTypes.has(convoy.waytype)),
+    [selectedConvoyTypes, snapshot?.convoys],
   )
+
+  const displayedLines = useMemo(
+    () => (snapshot?.lines ?? []).filter((line) => selectedConvoyTypes.has(line.waytype)),
+    [selectedConvoyTypes, snapshot?.lines],
+  )
+
+  const renderedLines = useMemo(
+    () => alignRoutesToStops
+      ? alignLinesToStops(displayedLines, snapshot?.stops ?? [])
+      : displayedLines,
+    [alignRoutesToStops, displayedLines, snapshot?.stops],
+  )
+
+  const filteredStops = useMemo(
+    () => filterStopsForLines(snapshot?.stops ?? [], displayedLines),
+    [displayedLines, snapshot?.stops],
+  )
+
+  const displayedStops = showAllStops ? (snapshot?.stops ?? []) : filteredStops
+
+  const groups = useMemo(() => groupConvoysByPosition(displayedConvoys), [displayedConvoys])
+
+  const toggleConvoyType = (waytype: string) => {
+    if (!convoyTypeCounts.has(waytype)) return
+    setSelectedConvoyTypes((current) => {
+      const next = new Set(current)
+      if (next.has(waytype)) next.delete(waytype)
+      else next.add(waytype)
+      return next
+    })
+    setHoveredGroup(null)
+  }
 
   const performRefresh = useCallback(async () => {
     if (refreshInFlight.current) return
@@ -58,6 +126,7 @@ function App() {
             ...current,
             time: refreshed.time,
             convoys: refreshed.convoys,
+            stops: refreshed.stops,
           } : current)
         }
       }
@@ -96,8 +165,17 @@ function App() {
 
   useEffect(() => {
     if (!canvasRef.current || !snapshot) return
-    drawMap(canvasRef.current, snapshot.map.size.width, snapshot.map.size.height, groups, zoom)
-  }, [groups, snapshot, zoom])
+    drawMap(
+      canvasRef.current,
+      snapshot.map.size.width,
+      snapshot.map.size.height,
+      groups,
+      displayedStops,
+      renderedLines,
+      layers,
+      zoom,
+    )
+  }, [displayedStops, groups, layers, renderedLines, snapshot, zoom])
 
   const zoomAtPoint = useCallback((requestedZoom: number, clientX: number, clientY: number) => {
     const viewport = viewportRef.current
@@ -115,6 +193,7 @@ function App() {
     zoomRef.current = nextZoom
     setZoom(nextZoom)
     setHoveredGroup(null)
+    setHoveredStops([])
 
     if (zoomFrameRef.current !== null) cancelAnimationFrame(zoomFrameRef.current)
     zoomFrameRef.current = requestAnimationFrame(() => {
@@ -163,6 +242,7 @@ function App() {
       draggingRef.current = true
       setDragging(true)
       setHoveredGroup(null)
+      setHoveredStops([])
       const pinch = distanceAndCenter()
       pinchDistanceRef.current = pinch?.distance ?? null
     }
@@ -232,13 +312,22 @@ function App() {
     const rect = canvas.getBoundingClientRect()
     const x = (event.clientX - rect.left) * (snapshot!.map.size.width / rect.width)
     const y = (event.clientY - rect.top) * (snapshot!.map.size.height / rect.height)
-    setHoveredGroup(findGroupAt(groups, x, y, 12 / zoom))
+    const group = layers.convoys ? findGroupAt(groups, x, y, 12 / zoom) : null
+    setHoveredGroup(group)
+    setHoveredStops(group || !layers.stops ? [] : findStopsAt(displayedStops, x, y, 10 / zoom))
     setTooltipPosition({ x: event.clientX + 14, y: event.clientY + 14 })
   }
 
   const changeZoom = (next: number) => {
     setZoom(clampZoom(next))
     setHoveredGroup(null)
+    setHoveredStops([])
+  }
+
+  const toggleLayer = (layer: keyof LayerVisibility) => {
+    setLayers((current) => ({ ...current, [layer]: !current[layer] }))
+    setHoveredGroup(null)
+    setHoveredStops([])
   }
 
   return (
@@ -262,7 +351,7 @@ function App() {
         </div>
         <div className="metric">
           <span>CONVOYS</span>
-          <strong>{snapshot?.convoys.length ?? '—'}</strong>
+          <strong>{snapshot ? displayedConvoys.length : '—'}</strong>
         </div>
         <div className="metric">
           <span>MAP SIZE</span>
@@ -291,6 +380,30 @@ function App() {
               {intervalOptions.map((value) => <option key={value} value={value}>{value / 1_000}秒</option>)}
             </select>
           </label>
+        </div>
+        <div className="control-group convoy-filter">
+          <details className="convoy-type-selector">
+            <summary>編成種別 <strong>{displayedConvoys.length} / {snapshot?.convoys.length ?? 0}</strong></summary>
+            <fieldset aria-label="表示する編成種別">
+              <legend>表示する編成種別</legend>
+              {convoyTypeOptions.map((option) => {
+                const count = convoyTypeCounts.get(option.value) ?? 0
+                return (
+                  <label key={option.value}>
+                    <input
+                      type="checkbox"
+                      aria-label={`${option.label}編成`}
+                      checked={count > 0 && selectedConvoyTypes.has(option.value)}
+                      disabled={count === 0}
+                      onChange={() => toggleConvoyType(option.value)}
+                    />
+                    <span>{option.label}</span>
+                    <em>{count}</em>
+                  </label>
+                )
+              })}
+            </fieldset>
+          </details>
         </div>
       </section>
 
@@ -323,7 +436,10 @@ function App() {
                 }}
                 aria-label={`${snapshot.map.size.width}×${snapshot.map.size.height}の編成位置マップ`}
                 onPointerMove={handlePointerMove}
-                onPointerLeave={() => setHoveredGroup(null)}
+                onPointerLeave={() => {
+                  setHoveredGroup(null)
+                  setHoveredStops([])
+                }}
               />
             ) : (
               <div className="empty-map">
@@ -332,6 +448,66 @@ function App() {
                 {!refreshing && <button type="button" onClick={() => void performRefresh()}>再接続</button>}
               </div>
             )}
+          </div>
+          <div className="map-layer-overlay" aria-label="レイヤー">
+            <strong>LAYERS</strong>
+            <label>
+              <input
+                type="checkbox"
+                aria-label="路線レイヤー"
+                checked={layers.lines}
+                onChange={() => toggleLayer('lines')}
+              />
+              <i className="layer-symbol line" />
+              <span>路線</span>
+              <em>{displayedLines.length}</em>
+            </label>
+            <label className="layer-suboption">
+              <input
+                type="checkbox"
+                aria-label="路線を駅に合わせる"
+                checked={alignRoutesToStops}
+                disabled={!layers.lines}
+                onChange={(event) => setAlignRoutesToStops(event.target.checked)}
+              />
+              <span>駅に合わせる</span>
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                aria-label="編成レイヤー"
+                checked={layers.convoys}
+                onChange={() => toggleLayer('convoys')}
+              />
+              <i className="layer-symbol convoy" />
+              <span>編成</span>
+              <em>{displayedConvoys.length}</em>
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                aria-label="駅レイヤー"
+                checked={layers.stops}
+                onChange={() => toggleLayer('stops')}
+              />
+              <i className="layer-symbol stop" />
+              <span>駅</span>
+              <em>{displayedStops.length}</em>
+            </label>
+            <label className="layer-suboption">
+              <input
+                type="checkbox"
+                aria-label="全駅表示"
+                checked={showAllStops}
+                disabled={!layers.stops}
+                onChange={(event) => {
+                  setShowAllStops(event.target.checked)
+                  setHoveredStops([])
+                }}
+              />
+              <span>全駅表示</span>
+              <em>{snapshot?.stops.length ?? 0}</em>
+            </label>
           </div>
           <div className="map-zoom-overlay" aria-label="ズーム操作">
             <button type="button" aria-label="縮小" onClick={() => changeZoom(zoom - ZOOM_STEP)} disabled={zoom <= 0.25}>−</button>
@@ -349,25 +525,51 @@ function App() {
         </footer>
       </section>
 
-      {hoveredGroup && (
+      {(hoveredGroup || hoveredStops.length > 0) && (
         <aside className="tooltip" style={{ left: tooltipPosition.x, top: tooltipPosition.y }}>
-          <div className="tooltip-title">
-            <span>座標 {hoveredGroup.x}, {hoveredGroup.y}</span>
-            <strong>{hoveredGroup.convoys.length}編成</strong>
-          </div>
-          <div className="tooltip-list">
-            {hoveredGroup.convoys.map((convoy) => (
-              <article key={convoy.convoy_id}>
-                <strong>#{convoy.convoy_id} {convoy.name}</strong>
-                <dl>
-                  <div><dt>状態</dt><dd>{convoy.state}</dd></div>
-                  <div><dt>速度</dt><dd>{convoy.speed_kmh} km/h</dd></div>
-                  <div><dt>座標</dt><dd>{convoy.x}, {convoy.y}, z{convoy.z}</dd></div>
-                  <div><dt>種別</dt><dd>{convoy.waytype}</dd></div>
-                </dl>
-              </article>
-            ))}
-          </div>
+          {hoveredGroup ? (
+            <>
+              <div className="tooltip-title">
+                <span>座標 {hoveredGroup.x}, {hoveredGroup.y}</span>
+                <strong>{hoveredGroup.convoys.length}編成</strong>
+              </div>
+              <div className="tooltip-list">
+                {hoveredGroup.convoys.map((convoy) => (
+                  <article key={convoy.convoy_id}>
+                    <strong>#{convoy.convoy_id} {convoy.name}</strong>
+                    <dl>
+                      <div><dt>状態</dt><dd>{convoy.state}</dd></div>
+                      <div><dt>速度</dt><dd>{convoy.speed_kmh} km/h</dd></div>
+                      <div><dt>座標</dt><dd>{convoy.x}, {convoy.y}, z{convoy.z}</dd></div>
+                      <div><dt>種別</dt><dd>{convoy.waytype}</dd></div>
+                    </dl>
+                  </article>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="tooltip-title">
+                <span>座標 {hoveredStops[0].position.x}, {hoveredStops[0].position.y}</span>
+                <strong>{hoveredStops.length}駅</strong>
+              </div>
+              <div className="tooltip-list">
+                {hoveredStops.map((stop) => (
+                  <article key={stop.id}>
+                    <strong>#{stop.id} {stop.name}</strong>
+                    <dl>
+                      <div><dt>旅客待ち</dt><dd>{stop.passenger_waiting.toLocaleString()}人</dd></div>
+                      <div><dt>容量</dt><dd>{stop.passenger_capacity.toLocaleString()}人</dd></div>
+                      <div><dt>前月到着</dt><dd>{stop.arrived_last_month.toLocaleString()}</dd></div>
+                      <div><dt>前月出発</dt><dd>{stop.departed_last_month.toLocaleString()}</dd></div>
+                      <div><dt>座標</dt><dd>{stop.position.x}, {stop.position.y}, z{stop.position.z}</dd></div>
+                      <div><dt>会社ID</dt><dd>{stop.company_ids.join(', ') || '—'}</dd></div>
+                    </dl>
+                  </article>
+                ))}
+              </div>
+            </>
+          )}
         </aside>
       )}
     </main>

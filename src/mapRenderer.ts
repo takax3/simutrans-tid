@@ -1,4 +1,4 @@
-import type { PositionGroup } from './types'
+import type { DisplayedLine, LayerVisibility, PositionGroup, Stop } from './types'
 
 const COLORS = {
   background: '#edf0e8',
@@ -9,6 +9,9 @@ const COLORS = {
   stopped: '#d8752c',
   other: '#65558f',
   markerBorder: '#ffffff',
+  stop: '#263b50',
+  stopBusy: '#c95c2c',
+  stopBorder: '#ffffff',
   text: '#24342f',
 }
 
@@ -33,11 +36,19 @@ function markerColor(state: string, speed: number): string {
   return COLORS.other
 }
 
+export function lineColor(colorIndex: number): string {
+  const hue = Math.round((colorIndex * 137.508) % 360)
+  return `hsl(${hue} 67% 42% / 0.58)`
+}
+
 export function drawMap(
   canvas: HTMLCanvasElement,
   width: number,
   height: number,
   groups: PositionGroup[],
+  stops: Stop[],
+  lines: DisplayedLine[],
+  layers: LayerVisibility,
   zoom: number,
 ): void {
   const backingScale = calculateBackingScale(
@@ -79,8 +90,47 @@ export function drawMap(
     context.stroke()
   }
 
+  if (layers.lines) {
+    context.lineCap = 'round'
+    context.lineJoin = 'round'
+    context.lineWidth = 2.5 / zoom
+    for (const line of lines) {
+      if (line.entries.length < 2) continue
+      context.beginPath()
+      context.strokeStyle = lineColor(line.color_index)
+      context.moveTo(line.entries[0].position.x, line.entries[0].position.y)
+      for (const entry of line.entries.slice(1)) {
+        context.lineTo(entry.position.x, entry.position.y)
+      }
+      context.stroke()
+    }
+  }
+
+  if (layers.stops) {
+    const stopRadius = 4.5 / zoom
+    for (const stop of stops) {
+      const isBusy = stop.passenger_capacity > 0
+        && stop.passenger_waiting / stop.passenger_capacity >= 0.8
+      context.fillStyle = isBusy ? COLORS.stopBusy : COLORS.stop
+      context.strokeStyle = COLORS.stopBorder
+      context.lineWidth = 1.5 / zoom
+      context.fillRect(
+        stop.position.x - stopRadius,
+        stop.position.y - stopRadius,
+        stopRadius * 2,
+        stopRadius * 2,
+      )
+      context.strokeRect(
+        stop.position.x - stopRadius,
+        stop.position.y - stopRadius,
+        stopRadius * 2,
+        stopRadius * 2,
+      )
+    }
+  }
+
   const radius = 6 / zoom
-  for (const group of groups) {
+  if (layers.convoys) for (const group of groups) {
     const representative = group.convoys[0]
     context.beginPath()
     context.fillStyle = markerColor(representative.state, representative.speed_kmh)

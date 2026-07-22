@@ -1,7 +1,8 @@
 import { parseConvoyPositions } from './csv'
 import { joinConvoys } from './model'
 import type {
-  ConvoyList, MapInfo, PositionsSnapshot, TimeSnapshot, ViewerSnapshot,
+  ConvoyList, DisplayedLine, LineList, LineSchedule, MapInfo, PositionsSnapshot,
+  StopList, TimeSnapshot, ViewerSnapshot,
 } from './types'
 
 export const API_BASE_URL = 'http://127.0.0.1:13355'
@@ -71,11 +72,23 @@ export async function fetchTime(): Promise<TimeSnapshot> {
 }
 
 export async function fetchConvoys(): Promise<ConvoyList> {
-  return fetchJson<ConvoyList>('/api/v1/convoys?waytype=rail')
+  return fetchJson<ConvoyList>('/api/v1/convoys?waytype=all')
+}
+
+export async function fetchStops(): Promise<StopList> {
+  return fetchJson<StopList>('/api/v1/stops')
+}
+
+export async function fetchLines(): Promise<LineList> {
+  return fetchJson<LineList>('/api/v1/lines?waytype=all')
+}
+
+export async function fetchLineSchedule(lineId: number): Promise<LineSchedule> {
+  return fetchJson<LineSchedule>(`/api/v1/lines/${lineId}/schedule`)
 }
 
 export async function fetchPositions(): Promise<PositionsSnapshot> {
-  const response = await checkedFetch('/api/v1/convoy-positions?waytype=rail', 'text/csv')
+  const response = await checkedFetch('/api/v1/convoy-positions?waytype=all', 'text/csv')
   const csv = await response.text()
   return {
     worldEpoch: numberHeader(response, 'X-Simutrans-World-Epoch'),
@@ -86,18 +99,30 @@ export async function fetchPositions(): Promise<PositionsSnapshot> {
 
 export async function loadViewerSnapshot(): Promise<ViewerSnapshot> {
   for (let attempt = 0; attempt < BOOTSTRAP_ATTEMPTS; attempt += 1) {
-    const [map, convoyList, positionList] = await Promise.all([
-      fetchMapInfo(), fetchConvoys(), fetchPositions(),
+    const [map, convoyList, positionList, stopList, lineList] = await Promise.all([
+      fetchMapInfo(), fetchConvoys(), fetchPositions(), fetchStops(), fetchLines(),
     ])
     if (
       map.world_epoch === convoyList.world_epoch
       && map.world_epoch === positionList.worldEpoch
+      && map.world_epoch === stopList.world_epoch
+      && map.world_epoch === lineList.world_epoch
     ) {
+      const schedules = await Promise.all(lineList.lines.map((line) => fetchLineSchedule(line.id)))
+      if (schedules.some((schedule) => schedule.world_epoch !== map.world_epoch)) continue
+      const schedulesByLineId = new Map(schedules.map((schedule) => [schedule.line_id, schedule]))
+      const lines: DisplayedLine[] = lineList.lines.map((line) => ({
+        ...line,
+        entries: [...(schedulesByLineId.get(line.id)?.entries ?? [])]
+          .sort((left, right) => left.index - right.index),
+      }))
       return {
         map,
         time: map.time,
         convoyMetadata: convoyList.convoys,
         convoys: joinConvoys(convoyList.convoys, positionList.positions),
+        stops: stopList.stops,
+        lines,
       }
     }
   }
@@ -106,19 +131,29 @@ export async function loadViewerSnapshot(): Promise<ViewerSnapshot> {
 
 export type PositionRefresh =
   | { epochChanged: true }
-  | { epochChanged: false; time: TimeSnapshot['time']; convoys: ViewerSnapshot['convoys'] }
+  | {
+      epochChanged: false
+      time: TimeSnapshot['time']
+      convoys: ViewerSnapshot['convoys']
+      stops: ViewerSnapshot['stops']
+    }
 
 export async function refreshPositions(
   worldEpoch: number,
   metadata: ViewerSnapshot['convoyMetadata'],
 ): Promise<PositionRefresh> {
-  const [time, positions] = await Promise.all([fetchTime(), fetchPositions()])
-  if (time.world_epoch !== worldEpoch || positions.worldEpoch !== worldEpoch) {
+  const [time, positions, stopList] = await Promise.all([fetchTime(), fetchPositions(), fetchStops()])
+  if (
+    time.world_epoch !== worldEpoch
+    || positions.worldEpoch !== worldEpoch
+    || stopList.world_epoch !== worldEpoch
+  ) {
     return { epochChanged: true }
   }
   return {
     epochChanged: false,
     time: time.time,
     convoys: joinConvoys(metadata, positions.positions),
+    stops: stopList.stops,
   }
 }

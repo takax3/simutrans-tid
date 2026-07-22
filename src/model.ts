@@ -1,4 +1,6 @@
-import type { Convoy, ConvoyPosition, DisplayedConvoy, PositionGroup } from './types'
+import type {
+  Convoy, ConvoyPosition, DisplayedConvoy, DisplayedLine, PositionGroup, Stop,
+} from './types'
 
 export const MIN_ZOOM = 0.25
 export const MAX_ZOOM = 4
@@ -52,4 +54,42 @@ export function findGroupAt(
     }
   }
   return nearest
+}
+
+export function findStopsAt(
+  stops: Stop[],
+  x: number,
+  y: number,
+  radius: number,
+): Stop[] {
+  return stops
+    .map((stop) => ({
+      stop,
+      distance: Math.hypot(stop.position.x - x, stop.position.y - y),
+    }))
+    .filter(({ distance }) => distance <= radius)
+    .sort((a, b) => a.distance - b.distance)
+    .map(({ stop }) => stop)
+}
+
+export function filterStopsForLines(stops: Stop[], lines: DisplayedLine[]): Stop[] {
+  const stopIds = new Set<number>()
+  for (const line of lines) {
+    for (const entry of line.entries) {
+      if (entry.stop_id !== null) stopIds.add(entry.stop_id)
+    }
+  }
+  return stops.filter((stop) => stopIds.has(stop.id))
+}
+
+export function alignLinesToStops(lines: DisplayedLine[], stops: Stop[]): DisplayedLine[] {
+  const stopsById = new Map(stops.map((stop) => [stop.id, stop]))
+  return lines.map((line) => ({
+    ...line,
+    entries: line.entries.map((entry) => {
+      if (entry.stop_id === null) return entry
+      const stop = stopsById.get(entry.stop_id)
+      return stop ? { ...entry, position: { ...stop.position } } : entry
+    }),
+  }))
 }

@@ -45,6 +45,65 @@ export interface ConvoyList {
   convoys: Convoy[]
 }
 
+export interface Stop {
+  id: number
+  name: string
+  company_ids: number[]
+  position: { x: number; y: number; z: number }
+  passenger_waiting: number
+  passenger_capacity: number
+  arrived_last_month: number
+  departed_last_month: number
+}
+
+export interface StopList {
+  api_version: 'v1'
+  world_epoch: number
+  sync_step: number
+  snapshot_sequence: number
+  generated_at_ms: number
+  stops: Stop[]
+}
+
+export interface Line {
+  id: number
+  name: string
+  company_id: number
+  waytype: string
+  convoy_count: number
+  withdraw: boolean
+  color_index: number
+}
+
+export interface LineList {
+  api_version: 'v1'
+  world_epoch: number
+  sync_step: number
+  snapshot_sequence: number
+  generated_at_ms: number
+  lines: Line[]
+}
+
+export interface LineScheduleEntry {
+  index: number
+  position: { x: number; y: number; z: number }
+  stop_id: number | null
+}
+
+export interface LineSchedule {
+  api_version: 'v1'
+  world_epoch: number
+  sync_step: number
+  snapshot_sequence: number
+  generated_at_ms: number
+  line_id: number
+  entries: LineScheduleEntry[]
+}
+
+export interface DisplayedLine extends Line {
+  entries: LineScheduleEntry[]
+}
+
 export interface ConvoyPosition {
   convoy_id: number
   waytype: string
@@ -75,6 +134,14 @@ export interface ViewerSnapshot {
   time: MapTime
   convoyMetadata: Convoy[]
   convoys: DisplayedConvoy[]
+  stops: Stop[]
+  lines: DisplayedLine[]
+}
+
+export interface LayerVisibility {
+  lines: boolean
+  convoys: boolean
+  stops: boolean
 }
 
 export interface PositionGroup {
