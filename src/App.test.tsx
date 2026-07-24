@@ -169,25 +169,42 @@ describe('App', () => {
     expect(canvas).toBeInTheDocument()
   })
 
-  it('MAP内のCtrl＋ホイールだけをキャンセルしてカーソル位置でズームする', async () => {
+  it('MAP内のホイールをキャンセルしてカーソル位置で滑らかにズームする', async () => {
     render(<App />)
     await screen.findByLabelText('1500×1000の編成位置マップ')
     const viewport = screen.getByTestId('map-viewport')
-
-    const browserScroll = new WheelEvent('wheel', {
-      bubbles: true, cancelable: true, ctrlKey: false, deltaY: -100,
+    Object.defineProperty(viewport, 'getBoundingClientRect', {
+      value: () => ({ left: 20, top: 10, right: 820, bottom: 610, width: 800, height: 600, x: 20, y: 10, toJSON: () => undefined }),
     })
-    fireEvent(viewport, browserScroll)
-    expect(browserScroll.defaultPrevented).toBe(false)
-    expect(screen.getByLabelText('現在のズーム率')).toHaveTextContent('100%')
+    viewport.scrollLeft = 200
+    viewport.scrollTop = 100
 
+    const mapZoom = new WheelEvent('wheel', {
+      bubbles: true, cancelable: true, ctrlKey: false, deltaY: -100,
+      clientX: 120, clientY: 110,
+    })
+    fireEvent(viewport, mapZoom)
+    expect(mapZoom.defaultPrevented).toBe(true)
+    await waitFor(() => expect(screen.getByLabelText('現在のズーム率')).toHaveTextContent('122%'))
+
+    await waitFor(() => {
+      const currentZoom = Number(screen.getByLabelText('現在のズーム率').textContent?.replace('%', '')) / 100
+      expect(viewport.scrollLeft).toBeCloseTo(300 * currentZoom - 100, 0)
+      expect(viewport.scrollTop).toBeCloseTo(200 * currentZoom - 100, 0)
+    })
+  })
+
+  it('MAP内のCtrl＋ホイールもブラウザへ渡さずズームする', async () => {
+    render(<App />)
+    await screen.findByLabelText('1500×1000の編成位置マップ')
+    const viewport = screen.getByTestId('map-viewport')
     const mapZoom = new WheelEvent('wheel', {
       bubbles: true, cancelable: true, ctrlKey: true, deltaY: -100,
       clientX: 120, clientY: 100,
     })
     fireEvent(viewport, mapZoom)
     expect(mapZoom.defaultPrevented).toBe(true)
-    expect(await screen.findByLabelText('現在のズーム率')).toHaveTextContent('125%')
+    await waitFor(() => expect(screen.getByLabelText('現在のズーム率')).toHaveTextContent('122%'))
   })
 
   it('1本指でパンし、2本指のピンチアウトでMAPだけを拡大する', async () => {

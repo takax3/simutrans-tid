@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   alignLinesToStops, clampZoom, filterStopsForLines, findStopsAt, groupConvoysByPosition,
-  joinConvoys,
+  joinConvoys, zoomByWheelDelta,
 } from './model'
 import type { ConvoyPosition, DisplayedConvoy, DisplayedLine, Stop } from './types'
 
@@ -30,6 +30,17 @@ describe('viewer model', () => {
     expect(clampZoom(0)).toBe(0.25)
     expect(clampZoom(2)).toBe(2)
     expect(clampZoom(9)).toBe(4)
+  })
+
+  it('ホイール量に応じて滑らかにズームし、上下限を超えない', () => {
+    const zoomedIn = zoomByWheelDelta(1, -100)
+    const zoomedOut = zoomByWheelDelta(1, 100)
+    expect(zoomedIn).toBeGreaterThan(1)
+    expect(zoomedIn).toBeLessThan(1.25)
+    expect(zoomedOut).toBeLessThan(1)
+    expect(zoomedOut).toBeGreaterThan(0.75)
+    expect(zoomByWheelDelta(4, -10_000)).toBe(4)
+    expect(zoomByWheelDelta(0.25, 10_000)).toBe(0.25)
   })
 
   it('指定座標に近い駅を距離順で返す', () => {

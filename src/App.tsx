@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { loadViewerSnapshot, refreshPositions } from './api'
 import {
   alignLinesToStops, clampZoom, filterStopsForLines, findGroupAt, findStopsAt,
-  groupConvoysByPosition, ZOOM_STEP,
+  groupConvoysByPosition, ZOOM_STEP, zoomByWheelDelta,
 } from './model'
 import { drawMap } from './mapRenderer'
 import type { LayerVisibility, PositionGroup, Stop, ViewerSnapshot } from './types'
@@ -48,7 +48,9 @@ function App() {
   const refreshRef = useRef<() => Promise<void>>(async () => undefined)
   const zoomRef = useRef(zoom)
   const zoomFrameRef = useRef<number | null>(null)
+  const wheelFrameRef = useRef<number | null>(null)
   const wheelDeltaRef = useRef(0)
+  const wheelPointRef = useRef({ x: 0, y: 0 })
   const activePointersRef = useRef(new Map<number, { x: number; y: number; type: string }>())
   const pinchDistanceRef = useRef<number | null>(null)
   const draggingRef = useRef(false)
@@ -208,13 +210,23 @@ function App() {
     if (!viewport) return undefined
 
     const handleWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey) return
       event.preventDefault()
-      wheelDeltaRef.current += event.deltaY
-      if (Math.abs(wheelDeltaRef.current) < 30) return
-      const direction = wheelDeltaRef.current < 0 ? 1 : -1
-      wheelDeltaRef.current = 0
-      zoomAtPoint(zoomRef.current + direction * ZOOM_STEP, event.clientX, event.clientY)
+      const deltaMultiplier = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? 16
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? viewport.clientHeight || window.innerHeight
+          : 1
+      wheelDeltaRef.current += event.deltaY * deltaMultiplier
+      wheelPointRef.current = { x: event.clientX, y: event.clientY }
+
+      if (wheelFrameRef.current !== null) return
+      wheelFrameRef.current = requestAnimationFrame(() => {
+        const delta = wheelDeltaRef.current
+        const point = wheelPointRef.current
+        wheelDeltaRef.current = 0
+        wheelFrameRef.current = null
+        zoomAtPoint(zoomByWheelDelta(zoomRef.current, delta), point.x, point.y)
+      })
     }
 
     const distanceAndCenter = () => {
@@ -301,6 +313,8 @@ function App() {
       activePointersRef.current.clear()
       pinchDistanceRef.current = null
       draggingRef.current = false
+      wheelDeltaRef.current = 0
+      if (wheelFrameRef.current !== null) cancelAnimationFrame(wheelFrameRef.current)
       if (zoomFrameRef.current !== null) cancelAnimationFrame(zoomFrameRef.current)
     }
   }, [zoomAtPoint])
@@ -521,7 +535,7 @@ function App() {
           <span>内部解像度: {snapshot ? `${snapshot.map.size.width} × ${snapshot.map.size.height}` : '—'}</span>
           <span>WORLD EPOCH: {snapshot?.map.world_epoch ?? '—'}</span>
           <span>ドラッグ: 移動</span>
-          <span>Ctrl＋ホイール / ピンチ: ズーム</span>
+          <span>ホイール / ピンチ: ズーム</span>
         </footer>
       </section>
 
