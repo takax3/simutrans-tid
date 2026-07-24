@@ -149,6 +149,28 @@ describe('calculateBackingScale', () => {
     expect(operations).not.toContain('lineTo:10.5,20')
   })
 
+  it('起点ピンと切断箇所のハサミをズーム補正して描画する', () => {
+    const arcs: Array<[number, number, number]> = []
+    const labels: Array<[string, number, number]> = []
+    const context = {
+      setTransform: () => undefined, clearRect: () => undefined, fillRect: () => undefined,
+      strokeRect: () => undefined, beginPath: () => undefined, moveTo: () => undefined,
+      lineTo: () => undefined, stroke: () => undefined, fill: () => undefined,
+      arc: (x: number, y: number, radius: number) => arcs.push([x, y, radius]),
+      fillText: (label: string, x: number, y: number) => labels.push([label, x, y]),
+      strokeText: () => undefined,
+    }
+    const canvas = { width: 0, height: 0, style: {}, getContext: () => context } as unknown as HTMLCanvasElement
+    const seed = {
+      x: 10, y: 20, z: 2, waytype: 'track', physical_ribi: 0, blocked_ribi: 0,
+      north_z: null, east_z: null, south_z: null, west_z: null,
+    }
+    const cut = { ...seed, x: 14 }
+    drawMap(canvas, 100, 100, [], [], [], [seed], [], { ways: true, lines: false, stops: false, convoys: false }, true, 2, true, seed, [cut])
+    expect(arcs).toContainEqual([10, 18.25, 2.5])
+    expect(labels).toContainEqual(['✂', 14, 20])
+  })
+
   it('駅を所有会社色で塗り、混雑時だけ外枠をオレンジにする', () => {
     const markers: Array<{ x: number; fill: string; stroke: string }> = []
     const context = {

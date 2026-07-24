@@ -1,5 +1,5 @@
 import type {
-  Convoy, ConvoyPosition, DisplayedConvoy, DisplayedLine, PositionGroup, Stop,
+  Convoy, ConvoyPosition, DisplayedConvoy, DisplayedLine, PositionGroup, Stop, WayTopologyTile,
 } from './types'
 
 export const MIN_ZOOM = 0.25
@@ -13,6 +13,97 @@ export function clampZoom(value: number): number {
 
 export function zoomByWheelDelta(currentZoom: number, deltaPixels: number): number {
   return clampZoom(currentZoom * Math.exp(-deltaPixels * WHEEL_ZOOM_SENSITIVITY))
+}
+
+export function wayTopologyKey(tile: Pick<WayTopologyTile, 'waytype' | 'x' | 'y' | 'z'>): string {
+  return `${tile.waytype}:${tile.x}:${tile.y}:${tile.z}`
+}
+
+const topologyDirections = [
+  { bit: 1, opposite: 4, dx: 0, dy: -1, zField: 'north_z' },
+  { bit: 2, opposite: 8, dx: 1, dy: 0, zField: 'east_z' },
+  { bit: 4, opposite: 1, dx: 0, dy: 1, zField: 'south_z' },
+  { bit: 8, opposite: 2, dx: -1, dy: 0, zField: 'west_z' },
+] as const
+
+export function connectedWayTopology(
+  tiles: WayTopologyTile[],
+  seed: WayTopologyTile,
+): WayTopologyTile[] {
+  const byKey = new Map(tiles.map((tile) => [wayTopologyKey(tile), tile]))
+  const seedTile = byKey.get(wayTopologyKey(seed))
+  if (!seedTile) return []
+
+  const connected: WayTopologyTile[] = []
+  const visited = new Set<string>()
+  const queue = [seedTile]
+  while (queue.length > 0) {
+    const tile = queue.shift()!
+    const key = wayTopologyKey(tile)
+    if (visited.has(key)) continue
+    visited.add(key)
+    connected.push(tile)
+
+    for (const direction of topologyDirections) {
+      if ((tile.physical_ribi & direction.bit) === 0) continue
+      const neighborZ = tile[direction.zField]
+      if (neighborZ === null) continue
+      const neighbor = byKey.get(`${tile.waytype}:${tile.x + direction.dx}:${tile.y + direction.dy}:${neighborZ}`)
+      if (neighbor && (neighbor.physical_ribi & direction.opposite) !== 0) queue.push(neighbor)
+    }
+  }
+  return connected
+}
+
+export function topologyAfterCuts(
+  tiles: WayTopologyTile[],
+  seed: WayTopologyTile,
+  cutKeys: ReadonlySet<string>,
+): WayTopologyTile[] {
+  if (cutKeys.has(wayTopologyKey(seed))) return []
+  const remaining = tiles.filter((tile) => !cutKeys.has(wayTopologyKey(tile)))
+  return connectedWayTopology(remaining, seed)
+}
+
+export function findWayTopologyCandidatesAt(
+  tiles: WayTopologyTile[],
+  x: number,
+  y: number,
+  radius: number,
+  waytypeOrder: readonly string[],
+): WayTopologyTile[] {
+  const nearest = findWayTopologyAt(tiles, x, y, radius, waytypeOrder)
+  if (!nearest) return []
+  const priorities = new Map(waytypeOrder.map((waytype, index) => [waytype, index]))
+  return tiles
+    .filter((tile) => tile.x === nearest.x && tile.y === nearest.y)
+    .sort((left, right) =>
+      (priorities.get(left.waytype) ?? Number.MAX_SAFE_INTEGER) - (priorities.get(right.waytype) ?? Number.MAX_SAFE_INTEGER)
+      || left.z - right.z)
+}
+
+export function findWayTopologyAt(
+  tiles: WayTopologyTile[],
+  x: number,
+  y: number,
+  radius: number,
+  waytypeOrder: readonly string[],
+): WayTopologyTile | null {
+  const priorities = new Map(waytypeOrder.map((waytype, index) => [waytype, index]))
+  return tiles
+    .map((tile, index) => ({ tile, index, distance: Math.hypot(tile.x - x, tile.y - y) }))
+    .filter(({ distance }) => distance <= radius)
+    .sort((left, right) => left.distance - right.distance
+      || (priorities.get(left.tile.waytype) ?? Number.MAX_SAFE_INTEGER) - (priorities.get(right.tile.waytype) ?? Number.MAX_SAFE_INTEGER)
+      || left.tile.z - right.tile.z
+      || left.index - right.index)[0]?.tile ?? null
+}
+
+export function filterConvoysForWayTopology(
+  convoys: DisplayedConvoy[],
+  topologyKeys: ReadonlySet<string>,
+): DisplayedConvoy[] {
+  return convoys.filter((convoy) => topologyKeys.has(wayTopologyKey(convoy)))
 }
 
 export function joinConvoys(

@@ -292,6 +292,83 @@ describe('App', () => {
     expect(viewport).not.toHaveClass('is-dragging')
   })
 
+  it('選択モードのクリックで連結線路網と、その上の編成だけを表示する', async () => {
+    const user = userEvent.setup()
+    const selectableSnapshot: ViewerSnapshot = {
+      ...snapshot,
+      wayTopology: [
+        { x: 910, y: 613, z: 2, waytype: 'track', physical_ribi: 2, blocked_ribi: 0, north_z: null, east_z: 2, south_z: null, west_z: null },
+        { x: 911, y: 613, z: 2, waytype: 'track', physical_ribi: 8, blocked_ribi: 0, north_z: null, east_z: null, south_z: null, west_z: 2 },
+        { x: 800, y: 500, z: 1, waytype: 'tram', physical_ribi: 0, blocked_ribi: 0, north_z: null, east_z: null, south_z: null, west_z: null },
+      ],
+    }
+    vi.mocked(loadViewerSnapshot).mockResolvedValueOnce(selectableSnapshot)
+    render(<App />)
+    await screen.findByLabelText('1500×1000の編成位置マップ')
+    const viewport = screen.getByTestId('map-viewport')
+    Object.defineProperties(viewport, {
+      getBoundingClientRect: {
+        value: () => ({ left: 0, top: 0, right: 1500, bottom: 1000, width: 1500, height: 1000, x: 0, y: 0, toJSON: () => undefined }),
+      },
+      setPointerCapture: { value: vi.fn() },
+      releasePointerCapture: { value: vi.fn() },
+    })
+
+    await user.click(screen.getByRole('button', { name: '路線網を選択' }))
+    expect(viewport).toHaveClass('is-topology-select')
+    fireEvent(viewport, pointerEvent('pointerdown', 21, 910, 613, 'mouse'))
+    fireEvent(viewport, pointerEvent('pointerup', 21, 910, 613, 'mouse'))
+
+    expect(await screen.findByText('2タイル・1編成')).toBeInTheDocument()
+    expect(screen.getByText('路線').closest('label')).toHaveTextContent('1')
+    vi.mocked(refreshPositions).mockResolvedValueOnce({
+      epochChanged: false,
+      time: selectableSnapshot.time,
+      convoyMetadata: selectableSnapshot.convoyMetadata,
+      convoys: selectableSnapshot.convoys.map((convoy) => convoy.convoy_id === 11
+        ? { ...convoy, x: 999, y: 999 }
+        : convoy),
+      stops: selectableSnapshot.stops,
+      lines: selectableSnapshot.lines,
+    })
+    await user.click(screen.getByRole('button', { name: '↻今すぐ更新' }))
+    expect(await screen.findByText('2タイル・0編成')).toBeInTheDocument()
+    const cutButton = screen.getByRole('button', { name: '路線網を切断' })
+    expect(screen.getByRole('button', { name: /TID表示を作成/ })).toBeDisabled()
+    await user.click(cutButton)
+    expect(viewport).toHaveClass('is-topology-cut')
+    fireEvent(viewport, pointerEvent('pointerdown', 24, 911, 613, 'mouse'))
+    fireEvent(viewport, pointerEvent('pointerup', 24, 911, 613, 'mouse'))
+    expect(await screen.findByText('1タイル・0編成')).toBeInTheDocument()
+    await user.click(cutButton)
+    fireEvent(viewport, pointerEvent('pointerdown', 25, 911, 613, 'mouse'))
+    fireEvent(viewport, pointerEvent('pointerup', 25, 911, 613, 'mouse'))
+    expect(await screen.findByRole('dialog', { name: '切断解除の確認' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '切断を解除' }))
+    expect(await screen.findByText('2タイル・0編成')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '選択解除' }))
+    expect(screen.queryByText(/タイル・.*編成/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '路線網を選択' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('選択モードでもドラッグと空白クリックでは線路網を選択しない', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByLabelText('1500×1000の編成位置マップ')
+    const viewport = screen.getByTestId('map-viewport')
+    Object.defineProperties(viewport, {
+      setPointerCapture: { value: vi.fn() },
+      releasePointerCapture: { value: vi.fn() },
+    })
+    await user.click(screen.getByRole('button', { name: '路線網を選択' }))
+    fireEvent(viewport, pointerEvent('pointerdown', 22, 10, 10, 'mouse'))
+    fireEvent(viewport, pointerEvent('pointermove', 22, 30, 30, 'mouse'))
+    fireEvent(viewport, pointerEvent('pointerup', 22, 30, 30, 'mouse'))
+    fireEvent(viewport, pointerEvent('pointerdown', 23, 20, 20, 'mouse'))
+    fireEvent(viewport, pointerEvent('pointerup', 23, 20, 20, 'mouse'))
+    expect(screen.queryByText(/タイル・.*編成/)).not.toBeInTheDocument()
+  })
+
   it('路線・編成・駅レイヤーを個別にON/OFFできる', async () => {
     const user = userEvent.setup()
     render(<App />)

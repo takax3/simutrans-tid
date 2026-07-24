@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
-  alignLinesToStops, clampZoom, filterStopsForLines, findStopsAt, groupConvoysByPosition,
-  joinConvoys, zoomByWheelDelta,
+  alignLinesToStops, clampZoom, connectedWayTopology, filterConvoysForWayTopology,
+  filterStopsForLines, findStopsAt, findWayTopologyAt, findWayTopologyCandidatesAt,
+  groupConvoysByPosition, joinConvoys, topologyAfterCuts, wayTopologyKey, zoomByWheelDelta,
 } from './model'
-import type { ConvoyPosition, DisplayedConvoy, DisplayedLine, Stop } from './types'
+import type { ConvoyPosition, DisplayedConvoy, DisplayedLine, Stop, WayTopologyTile } from './types'
 
 const position: ConvoyPosition = {
   convoy_id: 11, waytype: 'track', state: 'driving', state_code: 6,
@@ -11,6 +12,15 @@ const position: ConvoyPosition = {
 }
 
 describe('viewer model', () => {
+  const topologyTile = (
+    x: number, y: number, z: number, physical_ribi: number,
+    overrides: Partial<WayTopologyTile> = {},
+  ): WayTopologyTile => ({
+    x, y, z, physical_ribi, waytype: 'track', blocked_ribi: 0,
+    north_z: null, east_z: null, south_z: null, west_z: null,
+    ...overrides,
+  })
+
   it('編成メタデータと位置をIDで結合する', () => {
     const joined = joinConvoys([{
       id: 11, name: '急行11号', company_id: 5, line_id: 3,
@@ -41,6 +51,73 @@ describe('viewer model', () => {
     expect(zoomedOut).toBeGreaterThan(0.75)
     expect(zoomByWheelDelta(4, -10_000)).toBe(4)
     expect(zoomByWheelDelta(0.25, 10_000)).toBe(0.25)
+  })
+
+  it('方向と接続先Zが双方で一致する線路だけを連結する', () => {
+    const tiles = [
+      topologyTile(0, 0, 0, 2, { east_z: 1 }),
+      topologyTile(1, 0, 1, 10, { west_z: 0, east_z: 1 }),
+      topologyTile(2, 0, 1, 8, { west_z: 1 }),
+      topologyTile(1, 0, 0, 8, { west_z: 0 }),
+      topologyTile(2, 0, 1, 8, { waytype: 'tram', west_z: 1 }),
+    ]
+    expect(connectedWayTopology(tiles, tiles[0]).map(wayTopologyKey)).toEqual([
+      'track:0:0:0', 'track:1:0:1', 'track:2:0:1',
+    ])
+  })
+
+  it('分岐・環状・孤立タイルをそれぞれ正しい連結成分に分ける', () => {
+    const tiles = [
+      topologyTile(0, 0, 0, 6, { east_z: 0, south_z: 0 }),
+      topologyTile(1, 0, 0, 12, { west_z: 0, south_z: 0 }),
+      topologyTile(1, 1, 0, 9, { north_z: 0, west_z: 0 }),
+      topologyTile(0, 1, 0, 3, { north_z: 0, east_z: 0 }),
+      topologyTile(9, 9, 0, 0),
+    ]
+    expect(connectedWayTopology(tiles, tiles[0])).toHaveLength(4)
+    expect(connectedWayTopology(tiles, tiles[4])).toEqual([tiles[4]])
+  })
+
+  it('切断タイルを除外し、起点から切り離されたトポロジも除外する', () => {
+    const tiles = [
+      topologyTile(0, 0, 0, 2, { east_z: 0 }),
+      topologyTile(1, 0, 0, 10, { west_z: 0, east_z: 0 }),
+      topologyTile(2, 0, 0, 10, { west_z: 0, east_z: 0 }),
+      topologyTile(3, 0, 0, 8, { west_z: 0 }),
+    ]
+    expect(topologyAfterCuts(tiles, tiles[0], new Set([wayTopologyKey(tiles[2])]))).toEqual(tiles.slice(0, 2))
+    expect(topologyAfterCuts(tiles, tiles[0], new Set()).map(wayTopologyKey)).toHaveLength(4)
+    expect(topologyAfterCuts(tiles, tiles[0], new Set([wayTopologyKey(tiles[0])]))).toEqual([])
+  })
+
+  it('最寄り線路を交通種別優先順、次に低いZ順で選ぶ', () => {
+    const tiles = [
+      topologyTile(10, 10, 3, 0),
+      topologyTile(10, 10, 1, 0),
+      topologyTile(10, 10, 0, 0, { waytype: 'tram' }),
+    ]
+    expect(findWayTopologyAt(tiles, 10, 10, 2, ['tram', 'track'])?.waytype).toBe('tram')
+    expect(findWayTopologyAt(tiles.slice(0, 2), 10, 10, 2, ['track'])?.z).toBe(1)
+    expect(findWayTopologyAt(tiles, 30, 30, 2, ['track'])).toBeNull()
+  })
+
+  it('最寄りxyに重なる全トポロジを候補として返す', () => {
+    const tiles = [
+      topologyTile(10, 10, 3, 0),
+      topologyTile(10, 10, 1, 0),
+      topologyTile(11, 10, 0, 0),
+    ]
+    expect(findWayTopologyCandidatesAt(tiles, 10, 10, 2, ['track']).map((tile) => tile.z)).toEqual([1, 3])
+  })
+
+  it('選択線路とwaytype・x・y・zが一致する編成だけを抽出する', () => {
+    const convoy = { ...position, name: 'A', company_id: 1, line_id: 1, vehicle_count: 4 } as DisplayedConvoy
+    const keys = new Set(['track:910:613:2'])
+    expect(filterConvoysForWayTopology([
+      convoy,
+      { ...convoy, convoy_id: 12, z: 3 },
+      { ...convoy, convoy_id: 13, waytype: 'tram' },
+    ], keys).map((item) => item.convoy_id)).toEqual([11])
   })
 
   it('指定座標に近い駅を距離順で返す', () => {

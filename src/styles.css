@@ -75,6 +75,7 @@ h2 { margin: 0; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 15
 .map-stage { position: relative; }
 .map-viewport { position: relative; overflow: auto; width: 100%; height: calc(100dvh - 258px); min-height: 480px; background: #ccd1c8; overscroll-behavior: contain; touch-action: none; user-select: none; cursor: grab; }
 .map-viewport.is-dragging { cursor: grabbing; }
+.map-viewport.is-topology-select:not(.is-dragging), .map-viewport.is-topology-cut:not(.is-dragging) { cursor: crosshair; }
 .map-viewport canvas { display: block; max-width: none; image-rendering: auto; }
 .map-layer-overlay { position: absolute; z-index: 8; top: 14px; right: 18px; min-width: 142px; overflow: hidden; border: 1px solid rgba(21,34,31,.34); background: rgba(245,245,239,.94); box-shadow: 0 8px 28px rgba(21,34,31,.18); backdrop-filter: blur(8px); }
 .map-layer-overlay > strong { display: block; padding: 7px 10px; border-bottom: 1px solid #c3cac6; color: #68746f; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 8px; letter-spacing: .14em; }
@@ -85,6 +86,26 @@ h2 { margin: 0; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 15
 .map-layer-overlay em { color: #697570; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 9px; font-style: normal; }
 .map-layer-overlay .layer-suboption { grid-template-columns: 16px 1fr auto; min-height: 30px; padding-left: 27px; background: #e9ece7; color: #53615c; font-size: 10px; }
 .map-layer-overlay .layer-suboption:has(input:disabled) { color: #9aa29e; cursor: not-allowed; }
+.topology-tools-overlay { position: absolute; z-index: 8; top: 326px; right: 18px; display: grid; min-width: 172px; overflow: hidden; border: 1px solid rgba(21,34,31,.34); background: rgba(245,245,239,.96); box-shadow: 0 8px 28px rgba(21,34,31,.18); backdrop-filter: blur(8px); }
+.topology-tools-overlay > strong { padding: 7px 10px; border-bottom: 1px solid #c3cac6; color: #68746f; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 8px; letter-spacing: .14em; }
+.topology-tools-overlay > button { min-height: 34px; border: 0; border-bottom: 1px solid #d9ddda; background: transparent; color: #263530; padding: 0 10px; text-align: left; font-size: 11px; cursor: pointer; }
+.topology-tools-overlay > button:hover:not(:disabled), .topology-tools-overlay > button.is-active { background: #d8ebe7; color: #056873; }
+.topology-tools-overlay > button:disabled { color: #9aa29e; cursor: not-allowed; }
+.topology-tools-overlay small { color: #87928e; font-size: 8px; }
+.topology-selection-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-bottom: 1px solid #d9ddda; background: #e9ece7; color: #53615c; font-size: 9px; }
+.topology-selection-summary button { border: 1px solid #71827c; background: #fff; color: #283a34; padding: 3px 6px; font: inherit; cursor: pointer; }
+.topology-tools-overlay > p { max-width: 172px; margin: 0; padding: 7px 9px; background: #fff0dc; color: #87451d; font-size: 9px; }
+.topology-candidate-popup { position: fixed; z-index: 30; display: grid; min-width: 190px; max-width: calc(100vw - 24px); border: 1px solid #5d6e68; background: #f8faf7; box-shadow: 0 12px 36px rgba(0,0,0,.28); }
+.topology-candidate-popup > strong { padding: 8px 10px; background: #24342f; color: #fff; font-size: 10px; }
+.topology-candidate-popup button { border: 0; border-bottom: 1px solid #d4dad6; background: transparent; padding: 8px 10px; color: #263530; text-align: left; font-size: 10px; cursor: pointer; }
+.topology-candidate-popup button:hover { background: #d8ebe7; }
+.topology-candidate-popup .popup-cancel { color: #68746f; }
+.topology-confirm-backdrop { position: fixed; z-index: 40; inset: 0; display: grid; place-items: center; background: rgba(14,25,22,.42); }
+.topology-confirm { width: min(340px, calc(100vw - 32px)); border-top: 3px solid #b52d27; background: #f8faf7; box-shadow: 0 18px 48px rgba(0,0,0,.3); padding: 16px; color: #263530; }
+.topology-confirm p { margin: 8px 0 16px; color: #68746f; font-size: 11px; }
+.topology-confirm > div { display: flex; justify-content: flex-end; gap: 8px; }
+.topology-confirm button { border: 1px solid #71827c; background: #fff; color: #283a34; padding: 6px 10px; cursor: pointer; }
+.topology-confirm button.confirm-primary { border-color: #9e2d28; background: #b52d27; color: #fff; }
 .layer-symbol { display: block; width: 8px; height: 8px; justify-self: center; }
 .layer-symbol.line { height: 3px; border-radius: 2px; background: #7b4db2; }
 .layer-symbol.way { height: 2px; background: #59635f; }
@@ -133,5 +154,6 @@ h2 { margin: 0; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 15
   .map-footer { flex-wrap: wrap; gap: 8px 18px; }
   .map-viewport { height: calc(100dvh - 330px); min-height: 360px; }
   .map-layer-overlay { top: 10px; right: 12px; }
+  .topology-tools-overlay { top: 322px; right: 12px; }
   .map-zoom-overlay { right: 12px; bottom: 12px; }
 }

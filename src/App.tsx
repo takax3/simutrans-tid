@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { loadViewerSnapshot, refreshPositions } from './api'
 import {
-  alignLinesToStops, clampZoom, filterStopsForLines, findGroupAt, findStopsAt,
-  groupConvoysByPosition, ZOOM_STEP, zoomByWheelDelta,
+  alignLinesToStops, clampZoom, filterConvoysForWayTopology,
+  filterStopsForLines, findGroupAt, findStopsAt, findWayTopologyCandidatesAt,
+  groupConvoysByPosition, topologyAfterCuts, wayTopologyKey, ZOOM_STEP, zoomByWheelDelta,
 } from './model'
 import { drawMap } from './mapRenderer'
-import type { LayerVisibility, PositionGroup, Stop, ViewerSnapshot } from './types'
+import type { LayerVisibility, PositionGroup, Stop, ViewerSnapshot, WayTopologyTile } from './types'
 
 const intervalOptions = [1_000, 2_000, 5_000, 10_000]
 const knownConvoyTypes = [
@@ -19,6 +20,8 @@ const knownConvoyTypes = [
   { value: 'air', label: '飛行機' },
 ]
 const defaultConvoyTypes = new Set(['track', 'tram', 'monorail', 'maglev', 'narrowgauge'])
+type TopologyTool = 'select' | 'cut' | null
+type CandidateAction = 'select' | 'cut' | 'uncut'
 
 function formatTime(snapshot: ViewerSnapshot | null): string {
   if (!snapshot) return '—'
@@ -40,6 +43,14 @@ function App() {
   const [colorLinesByCompany, setColorLinesByCompany] = useState(true)
   const [showRestrictedDirections, setShowRestrictedDirections] = useState(true)
   const [showAllStops, setShowAllStops] = useState(false)
+  const [topologyTool, setTopologyTool] = useState<TopologyTool>(null)
+  const [topologySeed, setTopologySeed] = useState<WayTopologyTile | null>(null)
+  const [cutTopologyTiles, setCutTopologyTiles] = useState<WayTopologyTile[]>([])
+  const [topologyCandidates, setTopologyCandidates] = useState<{
+    action: CandidateAction; tiles: WayTopologyTile[]; x: number; y: number
+  } | null>(null)
+  const [confirmUncut, setConfirmUncut] = useState<WayTopologyTile | null>(null)
+  const [topologyNotice, setTopologyNotice] = useState<string | null>(null)
   const [layers, setLayers] = useState<LayerVisibility>({ ways: true, lines: true, convoys: true, stops: true })
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [hoveredGroup, setHoveredGroup] = useState<PositionGroup | null>(null)
@@ -57,6 +68,13 @@ function App() {
   const activePointersRef = useRef(new Map<number, { x: number; y: number; type: string }>())
   const pinchDistanceRef = useRef<number | null>(null)
   const draggingRef = useRef(false)
+  const pointerGesturesRef = useRef(new Map<number, { startX: number; startY: number; moved: boolean }>())
+  const topologyToolRef = useRef<TopologyTool>(topologyTool)
+  const displayedWayTopologyRef = useRef<WayTopologyTile[]>([])
+  const filteredWayTopologyRef = useRef<WayTopologyTile[]>([])
+  const cutTopologyTilesRef = useRef<WayTopologyTile[]>([])
+
+  topologyToolRef.current = topologyTool
 
   zoomRef.current = zoom
 
@@ -77,7 +95,7 @@ function App() {
     return [...knownConvoyTypes, ...unknownTypes]
   }, [convoyTypeCounts])
 
-  const displayedConvoys = useMemo(
+  const filteredConvoys = useMemo(
     () => (snapshot?.convoys ?? []).filter((convoy) => selectedConvoyTypes.has(convoy.waytype)),
     [selectedConvoyTypes, snapshot?.convoys],
   )
@@ -87,9 +105,33 @@ function App() {
     [selectedConvoyTypes, snapshot?.lines],
   )
 
-  const displayedWayTopology = useMemo(
+  const filteredWayTopology = useMemo(
     () => (snapshot?.wayTopology ?? []).filter((tile) => selectedConvoyTypes.has(tile.waytype)),
     [selectedConvoyTypes, snapshot?.wayTopology],
+  )
+  filteredWayTopologyRef.current = filteredWayTopology
+
+  const cutTopologyKeys = useMemo(
+    () => new Set(cutTopologyTiles.map(wayTopologyKey)),
+    [cutTopologyTiles],
+  )
+  const selectedTopology = useMemo(
+    () => topologySeed ? topologyAfterCuts(filteredWayTopology, topologySeed, cutTopologyKeys) : null,
+    [cutTopologyKeys, filteredWayTopology, topologySeed],
+  )
+  const selectedTopologyKeys = useMemo(
+    () => selectedTopology ? new Set(selectedTopology.map(wayTopologyKey)) : null,
+    [selectedTopology],
+  )
+
+  const displayedWayTopology = selectedTopology ?? filteredWayTopology
+  displayedWayTopologyRef.current = displayedWayTopology
+  cutTopologyTilesRef.current = cutTopologyTiles
+  const displayedConvoys = useMemo(
+    () => selectedTopologyKeys
+      ? filterConvoysForWayTopology(filteredConvoys, selectedTopologyKeys)
+      : filteredConvoys,
+    [filteredConvoys, selectedTopologyKeys],
   )
 
   const renderedLines = useMemo(
@@ -113,6 +155,19 @@ function App() {
 
   const groups = useMemo(() => groupConvoysByPosition(displayedConvoys), [displayedConvoys])
 
+  const renderedLayers = selectedTopology
+    ? { ...layers, ways: true, lines: false, convoys: true, stops: false }
+    : layers
+
+  const clearTopologySelection = useCallback(() => {
+    setTopologySeed(null)
+    setCutTopologyTiles([])
+    setTopologyTool(null)
+    setTopologyCandidates(null)
+    setConfirmUncut(null)
+    setTopologyNotice(null)
+  }, [])
+
   const toggleConvoyType = (waytype: string) => {
     if (!convoyTypeCounts.has(waytype)) return
     setSelectedConvoyTypes((current) => {
@@ -121,6 +176,7 @@ function App() {
       else next.add(waytype)
       return next
     })
+    if (topologySeed?.waytype === waytype) clearTopologySelection()
     setHoveredGroup(null)
   }
 
@@ -136,6 +192,7 @@ function App() {
         const refreshed = await refreshPositions(snapshot)
         if (refreshed.epochChanged) {
           setSnapshot(await loadViewerSnapshot())
+          clearTopologySelection()
         } else {
           setSnapshot((current) => current ? {
             ...current,
@@ -155,7 +212,7 @@ function App() {
       refreshInFlight.current = false
       setRefreshing(false)
     }
-  }, [snapshot])
+  }, [clearTopologySelection, snapshot])
 
   const performFullRefresh = useCallback(async () => {
     if (refreshInFlight.current) return
@@ -164,6 +221,7 @@ function App() {
     setFullRefreshing(true)
     try {
       setSnapshot(await loadViewerSnapshot())
+      clearTopologySelection()
       setLastUpdated(new Date())
       setError(null)
     } catch (caught) {
@@ -173,7 +231,7 @@ function App() {
       setRefreshing(false)
       setFullRefreshing(false)
     }
-  }, [])
+  }, [clearTopologySelection])
 
   refreshRef.current = performRefresh
 
@@ -209,12 +267,63 @@ function App() {
       snapshot.companies,
       displayedWayTopology,
       renderedLines,
-      layers,
+      renderedLayers,
       colorLinesByCompany,
       zoom,
       showRestrictedDirections,
+      topologySeed,
+      cutTopologyTiles,
     )
-  }, [colorLinesByCompany, displayedStops, displayedWayTopology, groups, layers, renderedLines, showRestrictedDirections, snapshot, zoom])
+  }, [colorLinesByCompany, cutTopologyTiles, displayedStops, displayedWayTopology, groups, renderedLayers, renderedLines, showRestrictedDirections, snapshot, topologySeed, zoom])
+
+  const applyTopologyCandidate = useCallback((action: CandidateAction, tile: WayTopologyTile) => {
+    setTopologyCandidates(null)
+    setTopologyNotice(null)
+    if (action === 'select') {
+      setTopologySeed(tile)
+      setCutTopologyTiles([])
+      setTopologyTool(null)
+      return
+    }
+    if (action === 'cut') {
+      if (topologySeed && wayTopologyKey(tile) === wayTopologyKey(topologySeed)) {
+        setTopologyNotice('起点タイルは切断できません。')
+        return
+      }
+      setCutTopologyTiles((current) => current.some((item) => wayTopologyKey(item) === wayTopologyKey(tile))
+        ? current
+        : [...current, tile])
+      return
+    }
+    setConfirmUncut(tile)
+  }, [topologySeed])
+
+  const handleTopologyTap = useCallback((clientX: number, clientY: number) => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+    const bounds = viewport.getBoundingClientRect()
+    const x = (viewport.scrollLeft + clientX - bounds.left) / zoomRef.current
+    const y = (viewport.scrollTop + clientY - bounds.top) / zoomRef.current
+    const action: CandidateAction | null = topologyToolRef.current === 'select'
+      ? 'select'
+      : topologyToolRef.current === 'cut'
+        ? 'cut'
+        : cutTopologyTilesRef.current.length > 0 ? 'uncut' : null
+    if (!action) return
+    const source = action === 'select'
+      ? filteredWayTopologyRef.current
+      : action === 'cut' ? displayedWayTopologyRef.current : cutTopologyTilesRef.current
+    const candidates = findWayTopologyCandidatesAt(
+      source,
+      x,
+      y,
+      (action === 'uncut' ? 12 : 7) / zoomRef.current,
+      knownConvoyTypes.map((option) => option.value),
+    )
+    if (candidates.length === 0) return
+    if (candidates.length === 1) applyTopologyCandidate(action, candidates[0])
+    else setTopologyCandidates({ action, tiles: candidates, x: clientX, y: clientY })
+  }, [applyTopologyCandidate])
 
   const zoomAtPoint = useCallback((requestedZoom: number, clientX: number, clientY: number) => {
     const viewport = viewportRef.current
@@ -288,6 +397,14 @@ function App() {
         y: event.clientY,
         type: event.pointerType,
       })
+      pointerGesturesRef.current.set(event.pointerId, {
+        startX: event.clientX,
+        startY: event.clientY,
+        moved: false,
+      })
+      if (activePointersRef.current.size > 1) {
+        for (const gesture of pointerGesturesRef.current.values()) gesture.moved = true
+      }
       draggingRef.current = true
       setDragging(true)
       setHoveredGroup(null)
@@ -305,6 +422,10 @@ function App() {
         y: event.clientY,
         type: event.pointerType,
       })
+      const gesture = pointerGesturesRef.current.get(event.pointerId)
+      if (gesture && Math.hypot(event.clientX - gesture.startX, event.clientY - gesture.startY) > 5) {
+        gesture.moved = true
+      }
 
       if (activePointersRef.current.size === 1) {
         viewport.scrollLeft -= event.clientX - previous.x
@@ -321,7 +442,9 @@ function App() {
 
     const handlePointerEnd = (event: PointerEvent) => {
       if (!activePointersRef.current.has(event.pointerId)) return
+      const gesture = pointerGesturesRef.current.get(event.pointerId)
       activePointersRef.current.delete(event.pointerId)
+      pointerGesturesRef.current.delete(event.pointerId)
       try {
         viewport.releasePointerCapture?.(event.pointerId)
       } catch {
@@ -333,6 +456,9 @@ function App() {
       }
       const pinch = distanceAndCenter()
       pinchDistanceRef.current = pinch?.distance ?? null
+      if (gesture && !gesture.moved) {
+        handleTopologyTap(event.clientX, event.clientY)
+      }
     }
 
     viewport.addEventListener('wheel', handleWheel, { passive: false })
@@ -348,13 +474,14 @@ function App() {
       viewport.removeEventListener('pointerup', handlePointerEnd)
       viewport.removeEventListener('pointercancel', handlePointerEnd)
       activePointersRef.current.clear()
+      pointerGesturesRef.current.clear()
       pinchDistanceRef.current = null
       draggingRef.current = false
       wheelDeltaRef.current = 0
       if (wheelFrameRef.current !== null) cancelAnimationFrame(wheelFrameRef.current)
       if (zoomFrameRef.current !== null) cancelAnimationFrame(zoomFrameRef.current)
     }
-  }, [zoomAtPoint])
+  }, [handleTopologyTap, zoomAtPoint])
 
   const handlePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
     if (event.pointerType && event.pointerType !== 'mouse') return
@@ -363,9 +490,9 @@ function App() {
     const rect = canvas.getBoundingClientRect()
     const x = (event.clientX - rect.left) * (snapshot!.map.size.width / rect.width)
     const y = (event.clientY - rect.top) * (snapshot!.map.size.height / rect.height)
-    const group = layers.convoys ? findGroupAt(groups, x, y, 12 / zoom) : null
+    const group = renderedLayers.convoys ? findGroupAt(groups, x, y, 12 / zoom) : null
     setHoveredGroup(group)
-    setHoveredStops(group || !layers.stops ? [] : findStopsAt(displayedStops, x, y, 10 / zoom))
+    setHoveredStops(group || !renderedLayers.stops ? [] : findStopsAt(displayedStops, x, y, 10 / zoom))
     setTooltipPosition({ x: event.clientX + 14, y: event.clientY + 14 })
   }
 
@@ -378,6 +505,7 @@ function App() {
   const toggleLayer = (layer: keyof LayerVisibility) => {
     const enabled = !layers[layer]
     setLayers((current) => ({ ...current, [layer]: enabled }))
+    if (layer === 'ways' && !enabled) clearTopologySelection()
     setHoveredGroup(null)
     setHoveredStops([])
   }
@@ -480,7 +608,7 @@ function App() {
         <div className="map-stage">
           <div
             ref={viewportRef}
-            className={`map-viewport${dragging ? ' is-dragging' : ''}`}
+            className={`map-viewport${dragging ? ' is-dragging' : ''}${topologyTool ? ` is-topology-${topologyTool}` : ''}`}
             data-testid="map-viewport"
           >
             {snapshot ? (
@@ -597,12 +725,80 @@ function App() {
               <em>{snapshot?.stops.length ?? 0}</em>
             </label>
           </div>
+          <div className="topology-tools-overlay" aria-label="路線網操作">
+            <strong>NETWORK TOOLS</strong>
+            <button
+              type="button"
+              className={topologyTool === 'select' ? 'is-active' : ''}
+              aria-pressed={topologyTool === 'select'}
+              disabled={!layers.ways}
+              onClick={() => {
+                setTopologyTool((current) => current === 'select' ? null : 'select')
+                setTopologyCandidates(null)
+                setTopologyNotice(null)
+              }}
+            >路線網を選択</button>
+            {topologySeed && (
+              <>
+                <div className="topology-selection-summary" role="status">
+                  <span>{selectedTopology?.length ?? 0}タイル・{displayedConvoys.length}編成</span>
+                  <button type="button" onClick={clearTopologySelection}>選択解除</button>
+                </div>
+                <button
+                  type="button"
+                  className={topologyTool === 'cut' ? 'is-active' : ''}
+                  aria-pressed={topologyTool === 'cut'}
+                  onClick={() => {
+                    setTopologyTool((current) => current === 'cut' ? null : 'cut')
+                    setTopologyCandidates(null)
+                    setTopologyNotice(null)
+                  }}
+                >路線網を切断</button>
+                <button type="button" disabled title="未実装">TID表示を作成 <small>未実装</small></button>
+              </>
+            )}
+            {topologyNotice && <p role="alert">{topologyNotice}</p>}
+          </div>
           <div className="map-zoom-overlay" aria-label="ズーム操作">
             <button type="button" aria-label="縮小" onClick={() => changeZoom(zoom - ZOOM_STEP)} disabled={zoom <= 0.25}>−</button>
             <output aria-label="現在のズーム率" aria-live="polite">{Math.round(zoom * 100)}%</output>
             <button type="button" aria-label="拡大" onClick={() => changeZoom(zoom + ZOOM_STEP)} disabled={zoom >= 4}>＋</button>
             <button className="zoom-reset" type="button" onClick={() => changeZoom(1)} disabled={zoom === 1}>100%に戻す</button>
           </div>
+          {topologyCandidates && (
+            <div
+              className="topology-candidate-popup"
+              role="dialog"
+              aria-label="線路候補を選択"
+              style={{ left: topologyCandidates.x + 10, top: topologyCandidates.y + 10 }}
+            >
+              <strong>対象の線路を選択</strong>
+              {topologyCandidates.tiles.map((tile) => (
+                <button
+                  type="button"
+                  key={wayTopologyKey(tile)}
+                  onClick={() => applyTopologyCandidate(topologyCandidates.action, tile)}
+                >{tile.waytype} / z{tile.z} <small>({tile.x}, {tile.y})</small></button>
+              ))}
+              <button type="button" className="popup-cancel" onClick={() => setTopologyCandidates(null)}>キャンセル</button>
+            </div>
+          )}
+          {confirmUncut && (
+            <div className="topology-confirm-backdrop">
+              <div className="topology-confirm" role="dialog" aria-modal="true" aria-label="切断解除の確認">
+                <strong>この切断を解除しますか？</strong>
+                <p>{confirmUncut.waytype} / z{confirmUncut.z}（{confirmUncut.x}, {confirmUncut.y}）</p>
+                <div>
+                  <button type="button" onClick={() => setConfirmUncut(null)}>キャンセル</button>
+                  <button type="button" className="confirm-primary" onClick={() => {
+                    const key = wayTopologyKey(confirmUncut)
+                    setCutTopologyTiles((current) => current.filter((tile) => wayTopologyKey(tile) !== key))
+                    setConfirmUncut(null)
+                  }}>切断を解除</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
         <footer className="map-footer">
           <span>座標原点: 左上</span>
@@ -610,6 +806,8 @@ function App() {
           <span>WORLD EPOCH: {snapshot?.map.world_epoch ?? '—'}</span>
           <span>ドラッグ: 移動</span>
           <span>ホイール / ピンチ: ズーム</span>
+          {topologyTool === 'select' && <span>クリック / タップ: 路線網を選択</span>}
+          {topologyTool === 'cut' && <span>クリック / タップ: 路線網を切断</span>}
         </footer>
       </section>
 

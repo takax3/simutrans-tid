@@ -60,6 +60,8 @@ export function drawMap(
   colorLinesByCompany: boolean,
   zoom: number,
   showRestrictedDirections = true,
+  topologySeed: WayTopologyTile | null = null,
+  cutTopologyTiles: WayTopologyTile[] = [],
 ): void {
   const backingScale = calculateBackingScale(
     width,
@@ -144,6 +146,36 @@ export function drawMap(
         }
         context.stroke()
       }
+    }
+  }
+
+  if (topologySeed) {
+    const pinRadius = 5 / zoom
+    context.beginPath()
+    context.fillStyle = '#e3403a'
+    context.strokeStyle = '#ffffff'
+    context.lineWidth = 1.5 / zoom
+    context.arc(topologySeed.x, topologySeed.y - pinRadius * 0.7, pinRadius, 0, Math.PI * 2)
+    context.fill()
+    context.stroke()
+    context.beginPath()
+    context.strokeStyle = '#e3403a'
+    context.lineWidth = 2 / zoom
+    context.moveTo(topologySeed.x, topologySeed.y)
+    context.lineTo(topologySeed.x, topologySeed.y - pinRadius * 0.3)
+    context.stroke()
+  }
+
+  if (cutTopologyTiles.length > 0) {
+    context.font = `700 ${16 / zoom}px "Segoe UI Symbol", sans-serif`
+    context.textAlign = 'center'
+    context.textBaseline = 'middle'
+    context.fillStyle = '#b52d27'
+    context.strokeStyle = '#ffffff'
+    context.lineWidth = 3 / zoom
+    for (const tile of cutTopologyTiles) {
+      context.strokeText?.('✂', tile.x, tile.y)
+      context.fillText('✂', tile.x, tile.y)
     }
   }
 
