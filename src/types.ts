@@ -144,6 +144,25 @@ export interface PositionsSnapshot {
   positions: ConvoyPosition[]
 }
 
+export interface WayTopologyTile {
+  x: number
+  y: number
+  z: number
+  waytype: string
+  physical_ribi: number
+  blocked_ribi: number
+  north_z: number | null
+  east_z: number | null
+  south_z: number | null
+  west_z: number | null
+}
+
+export interface WayTopologySnapshot {
+  worldEpoch: number
+  snapshotSequence: number
+  tiles: WayTopologyTile[]
+}
+
 export interface DisplayedConvoy extends ConvoyPosition {
   name: string
   company_id: number | null
@@ -159,9 +178,11 @@ export interface ViewerSnapshot {
   stops: Stop[]
   companies: Company[]
   lines: DisplayedLine[]
+  wayTopology: WayTopologyTile[]
 }
 
 export interface LayerVisibility {
+  ways: boolean
   lines: boolean
   convoys: boolean
   stops: boolean

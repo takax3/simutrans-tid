@@ -77,7 +77,7 @@ describe('calculateBackingScale', () => {
       ai_type: 'human', ai_active: false, locked: false,
       primary_color_index: 40, secondary_color_index: 64,
     }]
-    drawMap(canvas, 100, 100, groups, stops, companies, lines, { lines: true, stops: true, convoys: true }, true, 1)
+    drawMap(canvas, 100, 100, groups, stops, companies, [], lines, { ways: true, lines: true, stops: true, convoys: true }, true, 1)
     const routeStart = operations.indexOf('moveTo:10,20')
     const routeEnd = operations.indexOf('lineTo:30,40')
     const stopMarker = operations.indexOf('fillRect:45.5,55.5')
@@ -88,8 +88,65 @@ describe('calculateBackingScale', () => {
     expect(stopMarker).toBeLessThan(convoyMarker)
 
     operations.length = 0
-    drawMap(canvas, 100, 100, groups, stops, companies, lines, { lines: false, stops: true, convoys: true }, true, 1)
+    drawMap(canvas, 100, 100, groups, stops, companies, [], lines, { ways: true, lines: false, stops: true, convoys: true }, true, 1)
     expect(operations).not.toContain('moveTo:10,20')
+  })
+
+  it('physical_ribiの接続方向へ線路を描き、レイヤーOFFなら省略する', () => {
+    const operations: string[] = []
+    const context = {
+      setTransform: () => undefined, clearRect: () => undefined, fillRect: () => undefined,
+      strokeRect: () => undefined, beginPath: () => undefined,
+      moveTo: (x: number, y: number) => operations.push(`moveTo:${x},${y}`),
+      lineTo: (x: number, y: number) => operations.push(`lineTo:${x},${y}`),
+      stroke: () => undefined, arc: () => undefined, fill: () => undefined, fillText: () => undefined,
+    }
+    const canvas = { width: 0, height: 0, style: {}, getContext: () => context } as unknown as HTMLCanvasElement
+    const topology = [{
+      x: 10, y: 20, z: 2, waytype: 'track', physical_ribi: 6, blocked_ribi: 0,
+      north_z: null, east_z: 2, south_z: 2, west_z: null,
+    }]
+    const layers = { ways: true, lines: false, stops: false, convoys: false }
+    drawMap(canvas, 100, 100, [], [], [], topology, [], layers, true, 1)
+    expect(operations).toContain('lineTo:10.5,20')
+    expect(operations).toContain('lineTo:10,20.5')
+    expect(operations).not.toContain('lineTo:10,19.5')
+
+    operations.length = 0
+    drawMap(canvas, 100, 100, [], [], [], topology, [], { ...layers, ways: false }, true, 1)
+    expect(operations).not.toContain('lineTo:10.5,20')
+  })
+
+  it('blocked_ribiの禁止側を重ね、高倍率では終端バーを描く', () => {
+    const operations: string[] = []
+    const context = {
+      setTransform: () => undefined, clearRect: () => undefined, fillRect: () => undefined,
+      strokeRect: () => undefined, beginPath: () => undefined,
+      moveTo: (x: number, y: number) => operations.push(`moveTo:${x},${y}`),
+      lineTo: (x: number, y: number) => operations.push(`lineTo:${x},${y}`),
+      stroke: () => undefined, arc: () => undefined, fill: () => undefined, fillText: () => undefined,
+    }
+    const canvas = { width: 0, height: 0, style: {}, getContext: () => context } as unknown as HTMLCanvasElement
+    const topology = [{
+      x: 10, y: 20, z: 2, waytype: 'track', physical_ribi: 0, blocked_ribi: 2,
+      north_z: null, east_z: 2, south_z: null, west_z: null,
+    }]
+    const layers = { ways: true, lines: false, stops: false, convoys: false }
+    drawMap(canvas, 100, 100, [], [], [], topology, [], layers, true, 1, true)
+    expect(operations).toContain('lineTo:10.5,20')
+
+    operations.length = 0
+    drawMap(canvas, 100, 100, [], [], [], topology, [], layers, true, 3, true)
+    expect(operations).toContain('moveTo:10.5,19.333333333333332')
+    expect(operations).toContain('lineTo:10.5,20.666666666666668')
+
+    operations.length = 0
+    drawMap(canvas, 100, 100, [], [], [], topology, [], layers, true, 3, false)
+    expect(operations).not.toContain('lineTo:10.5,20')
+
+    operations.length = 0
+    drawMap(canvas, 100, 100, [], [], [], topology, [], { ...layers, ways: false }, true, 3, true)
+    expect(operations).not.toContain('lineTo:10.5,20')
   })
 
   it('駅を所有会社色で塗り、混雑時だけ外枠をオレンジにする', () => {
@@ -125,7 +182,7 @@ describe('calculateBackingScale', () => {
       primary_color_index: 40, secondary_color_index: 64,
     }]
 
-    drawMap(canvas, 100, 100, [], stops, companies, [], { lines: false, stops: true, convoys: false }, true, 1)
+    drawMap(canvas, 100, 100, [], stops, companies, [], [], { ways: false, lines: false, stops: true, convoys: false }, true, 1)
 
     expect(markers).toEqual([
       { x: 5.5, fill: '#3F7A16', stroke: '#ffffff' },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseConvoyPositions, parseCsv } from './csv'
+import { parseConvoyPositions, parseCsv, parseWayTopology } from './csv'
 
 describe('parseCsv', () => {
   it('CRLF、引用符、引用符内のカンマを解析する', () => {
@@ -7,6 +7,19 @@ describe('parseCsv', () => {
       ['a', 'b'],
       ['x,y', 'say "hi"'],
     ])
+  })
+})
+
+describe('parseWayTopology', () => {
+  it('ribiと空の隣接高度を型変換する', () => {
+    const csv = [
+      'x,y,z,waytype,physical_ribi,blocked_ribi,north_z,east_z,south_z,west_z',
+      '10,20,2,track,6,0,,2,3,',
+    ].join('\r\n')
+    expect(parseWayTopology(csv)).toEqual([{
+      x: 10, y: 20, z: 2, waytype: 'track', physical_ribi: 6, blocked_ribi: 0,
+      north_z: null, east_z: 2, south_z: 3, west_z: null,
+    }])
   })
 })
 

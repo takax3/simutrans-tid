@@ -30,6 +30,7 @@ function App() {
   const [snapshot, setSnapshot] = useState<ViewerSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [fullRefreshing, setFullRefreshing] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [intervalMs, setIntervalMs] = useState(5_000)
   const [zoom, setZoom] = useState(1)
@@ -37,8 +38,9 @@ function App() {
   const [selectedConvoyTypes, setSelectedConvoyTypes] = useState(() => new Set(defaultConvoyTypes))
   const [alignRoutesToStops, setAlignRoutesToStops] = useState(true)
   const [colorLinesByCompany, setColorLinesByCompany] = useState(true)
+  const [showRestrictedDirections, setShowRestrictedDirections] = useState(true)
   const [showAllStops, setShowAllStops] = useState(false)
-  const [layers, setLayers] = useState<LayerVisibility>({ lines: true, convoys: true, stops: true })
+  const [layers, setLayers] = useState<LayerVisibility>({ ways: true, lines: true, convoys: true, stops: true })
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [hoveredGroup, setHoveredGroup] = useState<PositionGroup | null>(null)
   const [hoveredStops, setHoveredStops] = useState<Stop[]>([])
@@ -85,6 +87,11 @@ function App() {
     [selectedConvoyTypes, snapshot?.lines],
   )
 
+  const displayedWayTopology = useMemo(
+    () => (snapshot?.wayTopology ?? []).filter((tile) => selectedConvoyTypes.has(tile.waytype)),
+    [selectedConvoyTypes, snapshot?.wayTopology],
+  )
+
   const renderedLines = useMemo(
     () => alignRoutesToStops
       ? alignLinesToStops(displayedLines, snapshot?.stops ?? [])
@@ -126,16 +133,17 @@ function App() {
         const loaded = await loadViewerSnapshot()
         setSnapshot(loaded)
       } else {
-        const refreshed = await refreshPositions(snapshot.map.world_epoch, snapshot.convoyMetadata)
+        const refreshed = await refreshPositions(snapshot)
         if (refreshed.epochChanged) {
           setSnapshot(await loadViewerSnapshot())
         } else {
           setSnapshot((current) => current ? {
             ...current,
             time: refreshed.time,
+            convoyMetadata: refreshed.convoyMetadata,
             convoys: refreshed.convoys,
             stops: refreshed.stops,
-            companies: refreshed.companies,
+            lines: refreshed.lines,
           } : current)
         }
       }
@@ -148,6 +156,24 @@ function App() {
       setRefreshing(false)
     }
   }, [snapshot])
+
+  const performFullRefresh = useCallback(async () => {
+    if (refreshInFlight.current) return
+    refreshInFlight.current = true
+    setRefreshing(true)
+    setFullRefreshing(true)
+    try {
+      setSnapshot(await loadViewerSnapshot())
+      setLastUpdated(new Date())
+      setError(null)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '不明なエラーが発生しました。')
+    } finally {
+      refreshInFlight.current = false
+      setRefreshing(false)
+      setFullRefreshing(false)
+    }
+  }, [])
 
   refreshRef.current = performRefresh
 
@@ -181,12 +207,14 @@ function App() {
       groups,
       displayedStops,
       snapshot.companies,
+      displayedWayTopology,
       renderedLines,
       layers,
       colorLinesByCompany,
       zoom,
+      showRestrictedDirections,
     )
-  }, [colorLinesByCompany, displayedStops, groups, layers, renderedLines, snapshot, zoom])
+  }, [colorLinesByCompany, displayedStops, displayedWayTopology, groups, layers, renderedLines, showRestrictedDirections, snapshot, zoom])
 
   const zoomAtPoint = useCallback((requestedZoom: number, clientX: number, clientY: number) => {
     const viewport = viewportRef.current
@@ -348,7 +376,8 @@ function App() {
   }
 
   const toggleLayer = (layer: keyof LayerVisibility) => {
-    setLayers((current) => ({ ...current, [layer]: !current[layer] }))
+    const enabled = !layers[layer]
+    setLayers((current) => ({ ...current, [layer]: enabled }))
     setHoveredGroup(null)
     setHoveredStops([])
   }
@@ -391,6 +420,10 @@ function App() {
           <button className="primary-button" type="button" onClick={() => void performRefresh()} disabled={refreshing}>
             <span className={refreshing ? 'refresh-icon spinning' : 'refresh-icon'}>↻</span>
             {refreshing ? '更新中' : '今すぐ更新'}
+          </button>
+          <button className="secondary-button" type="button" onClick={() => void performFullRefresh()} disabled={refreshing}>
+            <span className={fullRefreshing ? 'refresh-icon spinning' : 'refresh-icon'}>⟳</span>
+            {fullRefreshing ? '全更新中' : '全データ更新'}
           </button>
           <label className="switch-control">
             <input type="checkbox" checked={autoRefresh} onChange={(event) => setAutoRefresh(event.target.checked)} />
@@ -474,6 +507,28 @@ function App() {
           </div>
           <div className="map-layer-overlay" aria-label="レイヤー">
             <strong>LAYERS</strong>
+            <label>
+              <input
+                type="checkbox"
+                aria-label="線路レイヤー"
+                checked={layers.ways}
+                onChange={() => toggleLayer('ways')}
+              />
+              <i className="layer-symbol way" />
+              <span>線路</span>
+              <em>{displayedWayTopology.length}</em>
+            </label>
+            <label className="layer-suboption">
+              <input
+                type="checkbox"
+                aria-label="制限方向を表示"
+                checked={showRestrictedDirections}
+                disabled={!layers.ways}
+                onChange={(event) => setShowRestrictedDirections(event.target.checked)}
+              />
+              <span>制限方向を表示</span>
+              <em>{displayedWayTopology.filter((tile) => tile.blocked_ribi !== 0).length}</em>
+            </label>
             <label>
               <input
                 type="checkbox"

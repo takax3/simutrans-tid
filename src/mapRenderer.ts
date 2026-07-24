@@ -1,5 +1,5 @@
 import { companyPrimaryColor } from './palette'
-import type { Company, DisplayedLine, LayerVisibility, PositionGroup, Stop } from './types'
+import type { Company, DisplayedLine, LayerVisibility, PositionGroup, Stop, WayTopologyTile } from './types'
 
 const COLORS = {
   background: '#edf0e8',
@@ -54,10 +54,12 @@ export function drawMap(
   groups: PositionGroup[],
   stops: Stop[],
   companies: Company[],
+  wayTopology: WayTopologyTile[],
   lines: DisplayedLine[],
   layers: LayerVisibility,
   colorLinesByCompany: boolean,
   zoom: number,
+  showRestrictedDirections = true,
 ): void {
   const backingScale = calculateBackingScale(
     width,
@@ -88,6 +90,7 @@ export function drawMap(
     context.moveTo(x, 0)
     context.lineTo(x, height)
     context.stroke()
+
   }
   for (let y = 0; y <= height; y += 100) {
     context.beginPath()
@@ -99,6 +102,50 @@ export function drawMap(
   }
 
   const companiesById = new Map(companies.map((company) => [company.id, company]))
+
+  if (layers.ways) {
+    context.strokeStyle = '#59635f'
+    context.lineCap = 'round'
+    context.lineJoin = 'round'
+    context.lineWidth = 1.35 / zoom
+    context.beginPath()
+    for (const tile of wayTopology) {
+      const ribi = tile.physical_ribi
+      if (ribi & 1) { context.moveTo(tile.x, tile.y); context.lineTo(tile.x, tile.y - 0.5) }
+      if (ribi & 2) { context.moveTo(tile.x, tile.y); context.lineTo(tile.x + 0.5, tile.y) }
+      if (ribi & 4) { context.moveTo(tile.x, tile.y); context.lineTo(tile.x, tile.y + 0.5) }
+      if (ribi & 8) { context.moveTo(tile.x, tile.y); context.lineTo(tile.x - 0.5, tile.y) }
+    }
+    context.stroke()
+
+    if (showRestrictedDirections) {
+      context.strokeStyle = '#c94f3d'
+      context.lineWidth = 2.2 / zoom
+      context.beginPath()
+      for (const tile of wayTopology) {
+        const blocked = tile.blocked_ribi
+        if (blocked & 1) { context.moveTo(tile.x, tile.y); context.lineTo(tile.x, tile.y - 0.5) }
+        if (blocked & 2) { context.moveTo(tile.x, tile.y); context.lineTo(tile.x + 0.5, tile.y) }
+        if (blocked & 4) { context.moveTo(tile.x, tile.y); context.lineTo(tile.x, tile.y + 0.5) }
+        if (blocked & 8) { context.moveTo(tile.x, tile.y); context.lineTo(tile.x - 0.5, tile.y) }
+      }
+      context.stroke()
+
+      if (zoom >= 2.5) {
+        const capRadius = 2 / zoom
+        context.lineWidth = 1.6 / zoom
+        context.beginPath()
+        for (const tile of wayTopology) {
+          const blocked = tile.blocked_ribi
+          if (blocked & 1) { context.moveTo(tile.x - capRadius, tile.y - 0.5); context.lineTo(tile.x + capRadius, tile.y - 0.5) }
+          if (blocked & 2) { context.moveTo(tile.x + 0.5, tile.y - capRadius); context.lineTo(tile.x + 0.5, tile.y + capRadius) }
+          if (blocked & 4) { context.moveTo(tile.x - capRadius, tile.y + 0.5); context.lineTo(tile.x + capRadius, tile.y + 0.5) }
+          if (blocked & 8) { context.moveTo(tile.x - 0.5, tile.y - capRadius); context.lineTo(tile.x - 0.5, tile.y + capRadius) }
+        }
+        context.stroke()
+      }
+    }
+  }
 
   if (layers.lines) {
     context.lineCap = 'round'

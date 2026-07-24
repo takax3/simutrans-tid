@@ -74,6 +74,10 @@ const snapshot: ViewerSnapshot = {
     ai_type: 'human', ai_active: false, locked: false,
     primary_color_index: 40, secondary_color_index: 64,
   }],
+  wayTopology: [
+    { x: 850, y: 550, z: 2, waytype: 'track', physical_ribi: 6, blocked_ribi: 0, north_z: null, east_z: 2, south_z: 2, west_z: null },
+    { x: 650, y: 350, z: 1, waytype: 'road', physical_ribi: 2, blocked_ribi: 0, north_z: null, east_z: 1, south_z: null, west_z: null },
+  ],
   lines: [{
     id: 3, name: '中央線', company_id: 5, waytype: 'track', convoy_count: 1,
     withdraw: false, color_index: 44,
@@ -121,9 +125,10 @@ beforeEach(() => {
   vi.mocked(refreshPositions).mockResolvedValue({
     epochChanged: false,
     time: snapshot.time,
+    convoyMetadata: snapshot.convoyMetadata,
     convoys: snapshot.convoys,
     stops: snapshot.stops,
-    companies: snapshot.companies,
+    lines: snapshot.lines,
   })
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as never)
 })
@@ -151,7 +156,31 @@ describe('App', () => {
     expect(screen.getByLabelText('現在のズーム率')).toHaveTextContent('100%')
 
     await user.click(screen.getByRole('button', { name: '↻今すぐ更新' }))
-    await waitFor(() => expect(refreshPositions).toHaveBeenCalledWith(2, snapshot.convoyMetadata))
+    await waitFor(() => expect(refreshPositions).toHaveBeenCalledWith(snapshot))
+  })
+
+  it('全データ更新ボタンで完全スナップショットを再取得する', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByLabelText('1500×1000の編成位置マップ')
+    vi.mocked(loadViewerSnapshot).mockClear()
+    await user.click(screen.getByRole('button', { name: '⟳全データ更新' }))
+    await waitFor(() => expect(loadViewerSnapshot).toHaveBeenCalledTimes(1))
+  })
+
+  it('制限方向の設定を保持しつつ線路レイヤーOFF中は無効にする', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByLabelText('1500×1000の編成位置マップ')
+    const restrictions = screen.getByRole('checkbox', { name: '制限方向を表示' })
+    const ways = screen.getByRole('checkbox', { name: '線路レイヤー' })
+    expect(restrictions).toBeChecked()
+    await user.click(ways)
+    expect(restrictions).toBeDisabled()
+    expect(restrictions).toBeChecked()
+    await user.click(ways)
+    expect(restrictions).toBeEnabled()
+    expect(restrictions).toBeChecked()
   })
 
   it('自動更新の切替・間隔変更と、エラー時のCanvas保持ができる', async () => {

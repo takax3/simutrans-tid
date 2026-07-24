@@ -1,8 +1,8 @@
-import { parseConvoyPositions } from './csv'
+import { parseConvoyPositions, parseWayTopology } from './csv'
 import { joinConvoys } from './model'
 import type {
   CompanyList, ConvoyList, DisplayedLine, LineList, LineSchedule, MapInfo, PositionsSnapshot,
-  StopList, TimeSnapshot, ViewerSnapshot,
+  StopList, TimeSnapshot, ViewerSnapshot, WayTopologySnapshot,
 } from './types'
 
 export const API_BASE_URL = 'http://127.0.0.1:13355'
@@ -101,10 +101,19 @@ export async function fetchPositions(): Promise<PositionsSnapshot> {
   }
 }
 
+export async function fetchWayTopology(): Promise<WayTopologySnapshot> {
+  const response = await checkedFetch('/api/v1/way-topology?waytype=all', 'text/csv')
+  return {
+    worldEpoch: numberHeader(response, 'X-Simutrans-World-Epoch'),
+    snapshotSequence: numberHeader(response, 'X-Simutrans-Snapshot-Sequence'),
+    tiles: parseWayTopology(await response.text()),
+  }
+}
+
 export async function loadViewerSnapshot(): Promise<ViewerSnapshot> {
   for (let attempt = 0; attempt < BOOTSTRAP_ATTEMPTS; attempt += 1) {
-    const [map, convoyList, positionList, stopList, companyList, lineList] = await Promise.all([
-      fetchMapInfo(), fetchConvoys(), fetchPositions(), fetchStops(), fetchCompanies(), fetchLines(),
+    const [map, convoyList, positionList, stopList, companyList, lineList, topology] = await Promise.all([
+      fetchMapInfo(), fetchConvoys(), fetchPositions(), fetchStops(), fetchCompanies(), fetchLines(), fetchWayTopology(),
     ])
     if (
       map.world_epoch === convoyList.world_epoch
@@ -112,6 +121,7 @@ export async function loadViewerSnapshot(): Promise<ViewerSnapshot> {
       && map.world_epoch === stopList.world_epoch
       && map.world_epoch === companyList.world_epoch
       && map.world_epoch === lineList.world_epoch
+      && map.world_epoch === topology.worldEpoch
     ) {
       const schedules = await Promise.all(lineList.lines.map((line) => fetchLineSchedule(line.id)))
       if (schedules.some((schedule) => schedule.world_epoch !== map.world_epoch)) continue
@@ -129,6 +139,7 @@ export async function loadViewerSnapshot(): Promise<ViewerSnapshot> {
         stops: stopList.stops,
         companies: companyList.companies,
         lines,
+        wayTopology: topology.tiles,
       }
     }
   }
@@ -140,31 +151,66 @@ export type PositionRefresh =
   | {
       epochChanged: false
       time: TimeSnapshot['time']
+      convoyMetadata: ViewerSnapshot['convoyMetadata']
       convoys: ViewerSnapshot['convoys']
       stops: ViewerSnapshot['stops']
-      companies: ViewerSnapshot['companies']
+      lines: ViewerSnapshot['lines']
     }
 
 export async function refreshPositions(
-  worldEpoch: number,
-  metadata: ViewerSnapshot['convoyMetadata'],
+  snapshot: ViewerSnapshot,
 ): Promise<PositionRefresh> {
-  const [time, positions, stopList, companyList] = await Promise.all([
-    fetchTime(), fetchPositions(), fetchStops(), fetchCompanies(),
+  const [time, convoyList, positions] = await Promise.all([
+    fetchTime(), fetchConvoys(), fetchPositions(),
   ])
   if (
-    time.world_epoch !== worldEpoch
-    || positions.worldEpoch !== worldEpoch
-    || stopList.world_epoch !== worldEpoch
-    || companyList.world_epoch !== worldEpoch
+    time.world_epoch !== snapshot.map.world_epoch
+    || convoyList.world_epoch !== snapshot.map.world_epoch
+    || positions.worldEpoch !== snapshot.map.world_epoch
   ) {
     return { epochChanged: true }
   }
+
+  let lines = snapshot.lines
+  let stops = snapshot.stops
+  const knownLineIds = new Set(lines.map((line) => line.id))
+  const unknownLineIds = new Set(convoyList.convoys
+    .map((convoy) => convoy.line_id)
+    .filter((lineId): lineId is number => lineId !== null && !knownLineIds.has(lineId)))
+
+  if (unknownLineIds.size > 0) {
+    const lineList = await fetchLines()
+    if (lineList.world_epoch !== snapshot.map.world_epoch) return { epochChanged: true }
+    const newLines = lineList.lines.filter((line) => unknownLineIds.has(line.id))
+    const schedules = await Promise.all(newLines.map((line) => fetchLineSchedule(line.id)))
+    if (schedules.some((schedule) => schedule.world_epoch !== snapshot.map.world_epoch)) {
+      return { epochChanged: true }
+    }
+    const schedulesByLineId = new Map(schedules.map((schedule) => [schedule.line_id, schedule]))
+    const additions: DisplayedLine[] = newLines.map((line) => ({
+      ...line,
+      entries: [...(schedulesByLineId.get(line.id)?.entries ?? [])]
+        .sort((left, right) => left.index - right.index),
+    }))
+    lines = [...lines, ...additions]
+
+    const knownStopIds = new Set(stops.map((stop) => stop.id))
+    const hasUnknownStop = additions.some((line) => line.entries.some(
+      (entry) => entry.stop_id !== null && !knownStopIds.has(entry.stop_id),
+    ))
+    if (hasUnknownStop) {
+      const stopList = await fetchStops()
+      if (stopList.world_epoch !== snapshot.map.world_epoch) return { epochChanged: true }
+      stops = stopList.stops
+    }
+  }
+
   return {
     epochChanged: false,
     time: time.time,
-    convoys: joinConvoys(metadata, positions.positions),
-    stops: stopList.stops,
-    companies: companyList.companies,
+    convoyMetadata: convoyList.convoys,
+    convoys: joinConvoys(convoyList.convoys, positions.positions),
+    stops,
+    lines,
   }
 }

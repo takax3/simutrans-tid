@@ -46,6 +46,8 @@ h1 { margin: 0; font-size: clamp(21px, 2.4vw, 28px); letter-spacing: -.04em; lin
 .convoy-type-selector input { width: 14px; height: 14px; margin: 0; accent-color: #087f8c; }
 .convoy-type-selector em { color: #697570; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 9px; font-style: normal; }
 .primary-button { display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 13px; border: 0; background: #dd7a32; color: #16221f; font-size: 12px; font-weight: 700; }
+.secondary-button { display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 0 12px; border: 1px solid #89938e; background: #f3f3ed; color: #263530; font-size: 11px; font-weight: 700; }
+.secondary-button:hover:not(:disabled) { background: #fff; }
 .refresh-icon { display: inline-block; font-size: 17px; line-height: 1; }
 .spinning { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -85,6 +87,7 @@ h2 { margin: 0; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 15
 .map-layer-overlay .layer-suboption:has(input:disabled) { color: #9aa29e; cursor: not-allowed; }
 .layer-symbol { display: block; width: 8px; height: 8px; justify-self: center; }
 .layer-symbol.line { height: 3px; border-radius: 2px; background: #7b4db2; }
+.layer-symbol.way { height: 2px; background: #59635f; }
 .layer-symbol.convoy { border-radius: 50%; background: #087f8c; }
 .layer-symbol.stop { background: #263b50; box-shadow: 0 0 0 1px #fff; }
 .map-zoom-overlay { position: absolute; z-index: 8; right: 18px; bottom: 18px; display: grid; grid-template-columns: 34px 58px 34px; overflow: hidden; border: 1px solid rgba(21,34,31,.34); background: rgba(245,245,239,.94); box-shadow: 0 8px 28px rgba(21,34,31,.2); backdrop-filter: blur(8px); }

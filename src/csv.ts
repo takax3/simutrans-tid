@@ -1,4 +1,4 @@
-import type { ConvoyPosition } from './types'
+import type { ConvoyPosition, WayTopologyTile } from './types'
 
 export function parseCsv(input: string): string[][] {
   const rows: string[][] = []
@@ -79,4 +79,34 @@ export function parseConvoyPositions(input: string): ConvoyPosition[] {
       route_index: routeIndex ? requiredNumber(routeIndex, 'route_index') : null,
     }
   })
+}
+
+const topologyHeaders = [
+  'x', 'y', 'z', 'waytype', 'physical_ribi', 'blocked_ribi',
+  'north_z', 'east_z', 'south_z', 'west_z',
+] as const
+
+export function parseWayTopology(input: string): WayTopologyTile[] {
+  const rows = parseCsv(input)
+  if (rows.length === 0) throw new Error('交通路トポロジーCSVが空です。')
+  const indexes = Object.fromEntries(rows[0].map((header, index) => [header.trim(), index]))
+  for (const header of topologyHeaders) {
+    if (indexes[header] === undefined) throw new Error(`交通路トポロジーCSVに${header}列がありません。`)
+  }
+  const optionalNumber = (value: string | undefined, column: string) => {
+    if (value === undefined || value.trim() === '') return null
+    return requiredNumber(value, column)
+  }
+  return rows.slice(1).map((row) => ({
+    x: requiredNumber(row[indexes.x], 'x'),
+    y: requiredNumber(row[indexes.y], 'y'),
+    z: requiredNumber(row[indexes.z], 'z'),
+    waytype: row[indexes.waytype] ?? '',
+    physical_ribi: requiredNumber(row[indexes.physical_ribi], 'physical_ribi'),
+    blocked_ribi: requiredNumber(row[indexes.blocked_ribi], 'blocked_ribi'),
+    north_z: optionalNumber(row[indexes.north_z], 'north_z'),
+    east_z: optionalNumber(row[indexes.east_z], 'east_z'),
+    south_z: optionalNumber(row[indexes.south_z], 'south_z'),
+    west_z: optionalNumber(row[indexes.west_z], 'west_z'),
+  }))
 }
