@@ -2,7 +2,7 @@ import { parseConvoyPositions, parseWayTopology } from './csv'
 import { joinConvoys } from './model'
 import type {
   CompanyList, ConvoyList, DisplayedLine, LineList, LineSchedule, MapInfo, PositionsSnapshot,
-  StopList, StopTile, StopTileList, TimeSnapshot, ViewerSnapshot, WayTopologySnapshot,
+  RoadSignList, StopList, StopTile, StopTileList, TimeSnapshot, ViewerSnapshot, WayTopologySnapshot,
 } from './types'
 
 export const API_BASE_URL = 'http://127.0.0.1:13355'
@@ -121,10 +121,14 @@ export async function fetchWayTopology(): Promise<WayTopologySnapshot> {
   }
 }
 
+export async function fetchRoadSigns(): Promise<RoadSignList> {
+  return fetchJson<RoadSignList>('/api/v1/road-signs')
+}
+
 export async function loadViewerSnapshot(): Promise<ViewerSnapshot> {
   for (let attempt = 0; attempt < BOOTSTRAP_ATTEMPTS; attempt += 1) {
-    const [map, convoyList, positionList, stopList, stopTileList, companyList, lineList, topology] = await Promise.all([
-      fetchMapInfo(), fetchConvoys(), fetchPositions(), fetchStops(), fetchStopTiles(), fetchCompanies(), fetchLines(), fetchWayTopology(),
+    const [map, convoyList, positionList, stopList, stopTileList, companyList, lineList, topology, roadSignList] = await Promise.all([
+      fetchMapInfo(), fetchConvoys(), fetchPositions(), fetchStops(), fetchStopTiles(), fetchCompanies(), fetchLines(), fetchWayTopology(), fetchRoadSigns(),
     ])
     if (
       map.world_epoch === convoyList.world_epoch
@@ -134,6 +138,7 @@ export async function loadViewerSnapshot(): Promise<ViewerSnapshot> {
       && map.world_epoch === companyList.world_epoch
       && map.world_epoch === lineList.world_epoch
       && map.world_epoch === topology.worldEpoch
+      && map.world_epoch === roadSignList.world_epoch
     ) {
       const schedules = await Promise.all(lineList.lines.map((line) => fetchLineSchedule(line.id)))
       if (schedules.some((schedule) => schedule.world_epoch !== map.world_epoch)) continue
@@ -153,6 +158,7 @@ export async function loadViewerSnapshot(): Promise<ViewerSnapshot> {
         companies: companyList.companies,
         lines,
         wayTopology: topology.tiles,
+        roadSigns: roadSignList.road_signs,
       }
     }
   }
@@ -169,18 +175,20 @@ export type PositionRefresh =
       stops: ViewerSnapshot['stops']
       stopTiles: ViewerSnapshot['stopTiles']
       lines: ViewerSnapshot['lines']
+      roadSigns: ViewerSnapshot['roadSigns']
     }
 
 export async function refreshPositions(
   snapshot: ViewerSnapshot,
 ): Promise<PositionRefresh> {
-  const [time, convoyList, positions] = await Promise.all([
-    fetchTime(), fetchConvoys(), fetchPositions(),
+  const [time, convoyList, positions, roadSignList] = await Promise.all([
+    fetchTime(), fetchConvoys(), fetchPositions(), fetchRoadSigns(),
   ])
   if (
     time.world_epoch !== snapshot.map.world_epoch
     || convoyList.world_epoch !== snapshot.map.world_epoch
     || positions.worldEpoch !== snapshot.map.world_epoch
+    || roadSignList.world_epoch !== snapshot.map.world_epoch
   ) {
     return { epochChanged: true }
   }
@@ -232,5 +240,6 @@ export async function refreshPositions(
     stops,
     stopTiles,
     lines,
+    roadSigns: roadSignList.road_signs,
   }
 }

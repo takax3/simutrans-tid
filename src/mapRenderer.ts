@@ -1,5 +1,5 @@
 import { companyPrimaryColor } from './palette'
-import type { Company, DisplayedLine, LayerVisibility, PositionGroup, Stop, StopTile, WayTopologyTile } from './types'
+import type { Company, DisplayedLine, LayerVisibility, PositionGroup, RoadSign, Stop, StopTile, WayTopologyTile } from './types'
 
 const COLORS = {
   background: '#edf0e8',
@@ -47,6 +47,21 @@ export function companyLineColor(company: Company | undefined): string | null {
   return color ? `${color}94` : null
 }
 
+export function signalStateColor(state: string): string {
+  const normalized = state.toLowerCase()
+  if (['green', 'clear', 'proceed'].includes(normalized)) return '#22a447'
+  if (['yellow', 'caution', 'warning'].includes(normalized)) return '#e3ad24'
+  if (['red', 'stop', 'danger'].includes(normalized)) return '#d83a32'
+  return '#76817d'
+}
+
+const signalDirections = {
+  north: { dx: 0, dy: -1 },
+  east: { dx: 1, dy: 0 },
+  south: { dx: 0, dy: 1 },
+  west: { dx: -1, dy: 0 },
+} as const
+
 export function drawMap(
   canvas: HTMLCanvasElement,
   width: number,
@@ -60,7 +75,8 @@ export function drawMap(
   layers: LayerVisibility,
   colorLinesByCompany: boolean,
   zoom: number,
-  showRestrictedDirections = true,
+  roadSigns: RoadSign[] = [],
+  showSignals = true,
   topologySeed: WayTopologyTile | null = null,
   cutTopologyTiles: WayTopologyTile[] = [],
 ): void {
@@ -121,33 +137,6 @@ export function drawMap(
     }
     context.stroke()
 
-    if (showRestrictedDirections) {
-      context.strokeStyle = '#c94f3d'
-      context.lineWidth = 2.2 / zoom
-      context.beginPath()
-      for (const tile of wayTopology) {
-        const blocked = tile.blocked_ribi
-        if (blocked & 1) { context.moveTo(tile.x, tile.y); context.lineTo(tile.x, tile.y - 0.5) }
-        if (blocked & 2) { context.moveTo(tile.x, tile.y); context.lineTo(tile.x + 0.5, tile.y) }
-        if (blocked & 4) { context.moveTo(tile.x, tile.y); context.lineTo(tile.x, tile.y + 0.5) }
-        if (blocked & 8) { context.moveTo(tile.x, tile.y); context.lineTo(tile.x - 0.5, tile.y) }
-      }
-      context.stroke()
-
-      if (zoom >= 2.5) {
-        const capRadius = 2 / zoom
-        context.lineWidth = 1.6 / zoom
-        context.beginPath()
-        for (const tile of wayTopology) {
-          const blocked = tile.blocked_ribi
-          if (blocked & 1) { context.moveTo(tile.x - capRadius, tile.y - 0.5); context.lineTo(tile.x + capRadius, tile.y - 0.5) }
-          if (blocked & 2) { context.moveTo(tile.x + 0.5, tile.y - capRadius); context.lineTo(tile.x + 0.5, tile.y + capRadius) }
-          if (blocked & 4) { context.moveTo(tile.x - capRadius, tile.y + 0.5); context.lineTo(tile.x + capRadius, tile.y + 0.5) }
-          if (blocked & 8) { context.moveTo(tile.x - 0.5, tile.y - capRadius); context.lineTo(tile.x - 0.5, tile.y + capRadius) }
-        }
-        context.stroke()
-      }
-    }
   }
 
   if (topologySeed) {
@@ -195,6 +184,45 @@ export function drawMap(
         context.lineTo(entry.position.x, entry.position.y)
       }
       context.stroke()
+    }
+  }
+
+  if (layers.ways && showSignals) {
+    const offset = 3.5 / zoom
+    const radius = 2.5 / zoom
+    const triangleSize = 3 / zoom
+    context.lineWidth = 1.1 / zoom
+    for (const sign of roadSigns) {
+      if (sign.state === null) continue
+      context.fillStyle = signalStateColor(sign.state)
+      context.strokeStyle = '#17201d'
+      if (sign.directions.length === 0) {
+        context.beginPath()
+        context.arc(sign.position.x, sign.position.y, radius, 0, Math.PI * 2)
+        context.fill()
+        context.stroke()
+        continue
+      }
+      for (const direction of sign.directions) {
+        const vector = signalDirections[direction]
+        if (!vector) continue
+        const x = sign.position.x + vector.dx * offset
+        const y = sign.position.y + vector.dy * offset
+        const perpendicularX = -vector.dy
+        const perpendicularY = vector.dx
+        const tipX = x - vector.dx * triangleSize
+        const tipY = y - vector.dy * triangleSize
+        const baseCenterX = x + vector.dx * triangleSize * 0.6
+        const baseCenterY = y + vector.dy * triangleSize * 0.6
+        const baseOffset = triangleSize * 0.85
+        context.beginPath()
+        context.moveTo(tipX, tipY)
+        context.lineTo(baseCenterX + perpendicularX * baseOffset, baseCenterY + perpendicularY * baseOffset)
+        context.lineTo(baseCenterX - perpendicularX * baseOffset, baseCenterY - perpendicularY * baseOffset)
+        context.lineTo(tipX, tipY)
+        context.fill()
+        context.stroke()
+      }
     }
   }
 

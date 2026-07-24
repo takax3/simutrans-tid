@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { loadViewerSnapshot, refreshPositions } from './api'
 import {
-  alignLinesToStops, clampZoom, filterConvoysForWayTopology,
+  alignLinesToStops, clampZoom, filterConvoysForWayTopology, filterRoadSigns,
   filterStopsForLines, findGroupAt, findStopsAt, findWayTopologyCandidatesAt,
   stopTilesOnWayTopology, visibleStopTiles,
   groupConvoysByPosition, topologyAfterCuts, wayTopologyKey, ZOOM_STEP, zoomByWheelDelta,
@@ -47,7 +47,7 @@ function App() {
   const [selectedConvoyTypes, setSelectedConvoyTypes] = useState(() => new Set(defaultConvoyTypes))
   const [alignRoutesToStops, setAlignRoutesToStops] = useState(true)
   const [colorLinesByCompany, setColorLinesByCompany] = useState(true)
-  const [showRestrictedDirections, setShowRestrictedDirections] = useState(true)
+  const [showSignals, setShowSignals] = useState(true)
   const [showAllStops, setShowAllStops] = useState(false)
   const [topologyTool, setTopologyTool] = useState<TopologyTool>(null)
   const [topologySeed, setTopologySeed] = useState<WayTopologyTile | null>(null)
@@ -145,6 +145,10 @@ function App() {
       ? filterConvoysForWayTopology(filteredConvoys, selectedTopologyKeys)
       : filteredConvoys,
     [filteredConvoys, selectedTopologyKeys],
+  )
+  const displayedRoadSigns = useMemo(
+    () => filterRoadSigns(snapshot?.roadSigns ?? [], displayedWayTopology),
+    [displayedWayTopology, snapshot?.roadSigns],
   )
 
   const renderedLines = useMemo(
@@ -329,6 +333,7 @@ function App() {
             stops: refreshed.stops,
             stopTiles: refreshed.stopTiles,
             lines: refreshed.lines,
+            roadSigns: refreshed.roadSigns,
           } : current)
         }
       }
@@ -399,11 +404,12 @@ function App() {
       renderedLayers,
       colorLinesByCompany,
       zoom,
-      showRestrictedDirections,
+      displayedRoadSigns,
+      showSignals,
       topologySeed,
       cutTopologyTiles,
     )
-  }, [colorLinesByCompany, cutTopologyTiles, displayedWayTopology, groups, renderedLayers, renderedLines, renderedStopTiles, renderedStops, showRestrictedDirections, snapshot, topologySeed, zoom])
+  }, [colorLinesByCompany, cutTopologyTiles, displayedRoadSigns, displayedWayTopology, groups, renderedLayers, renderedLines, renderedStopTiles, renderedStops, showSignals, snapshot, topologySeed, zoom])
 
   const applyTopologyCandidate = useCallback((action: CandidateAction, tile: WayTopologyTile) => {
     setTopologyCandidates(null)
@@ -778,13 +784,13 @@ function App() {
             <label className="layer-suboption">
               <input
                 type="checkbox"
-                aria-label="制限方向を表示"
-                checked={showRestrictedDirections}
+                aria-label="信号を表示"
+                checked={showSignals}
                 disabled={!layers.ways}
-                onChange={(event) => setShowRestrictedDirections(event.target.checked)}
+                onChange={(event) => setShowSignals(event.target.checked)}
               />
-              <span>制限方向を表示</span>
-              <em>{displayedWayTopology.filter((tile) => tile.blocked_ribi !== 0).length}</em>
+              <span>信号を表示</span>
+              <em>{displayedRoadSigns.length}</em>
             </label>
             <label>
               <input

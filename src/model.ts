@@ -1,5 +1,5 @@
 import type {
-  Convoy, ConvoyPosition, DisplayedConvoy, DisplayedLine, PositionGroup, Stop, StopTile, WayTopologyTile,
+  Convoy, ConvoyPosition, DisplayedConvoy, DisplayedLine, PositionGroup, RoadSign, Stop, StopTile, WayTopologyTile,
 } from './types'
 
 export const MIN_ZOOM = 0.25
@@ -104,6 +104,15 @@ export function filterConvoysForWayTopology(
   topologyKeys: ReadonlySet<string>,
 ): DisplayedConvoy[] {
   return convoys.filter((convoy) => topologyKeys.has(wayTopologyKey(convoy)))
+}
+
+export function filterRoadSigns(
+  roadSigns: RoadSign[],
+  visibleTopology: WayTopologyTile[],
+): RoadSign[] {
+  const visibleCoordinates = new Set(visibleTopology.map((tile) => `${tile.x}:${tile.y}:${tile.z}`))
+  return roadSigns.filter((sign) => sign.state !== null
+    && visibleCoordinates.has(`${sign.position.x}:${sign.position.y}:${sign.position.z}`))
 }
 
 export function joinConvoys(

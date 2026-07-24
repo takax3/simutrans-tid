@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
-  alignLinesToStops, clampZoom, connectedWayTopology, filterConvoysForWayTopology,
+  alignLinesToStops, clampZoom, connectedWayTopology, filterConvoysForWayTopology, filterRoadSigns,
   filterStopsForLines, findStopsAt, findWayTopologyAt, findWayTopologyCandidatesAt,
   groupConvoysByPosition, joinConvoys, stopTilesOnWayTopology, topologyAfterCuts,
   visibleStopTiles, wayTopologyKey, zoomByWheelDelta,
 } from './model'
-import type { ConvoyPosition, DisplayedConvoy, DisplayedLine, Stop, WayTopologyTile } from './types'
+import type { ConvoyPosition, DisplayedConvoy, DisplayedLine, RoadSign, Stop, WayTopologyTile } from './types'
 
 const position: ConvoyPosition = {
   convoy_id: 11, waytype: 'track', state: 'driving', state_code: 6,
@@ -141,6 +141,23 @@ describe('viewer model', () => {
       { ...convoy, convoy_id: 12, z: 3 },
       { ...convoy, convoy_id: 13, waytype: 'tram' },
     ], keys).map((item) => item.convoy_id)).toEqual([11])
+  })
+
+  it('状態があり、表示線路とx/y/zが一致する信号だけをwaytypeに関係なく抽出する', () => {
+    const base: RoadSign = {
+      position: { x: 10, y: 20, z: 2 }, waytype: 'track', kind: 'signal',
+      directions: ['east'], state: 'red', company_id: 1, descriptor_name: 'signal',
+    }
+    const signs: RoadSign[] = [
+      { ...base, directions: [...base.directions] },
+      { ...base, position: { x: 11, y: 20, z: 2 }, state: null },
+      { ...base, position: { x: 12, y: 20, z: 2 }, waytype: 'track', directions: [...base.directions] },
+      { ...base, position: { x: 10, y: 20, z: 3 }, directions: [...base.directions] },
+    ]
+    const visibleTramTile = topologyTile(10, 20, 2, 0, { waytype: 'tram' })
+    expect(filterRoadSigns(signs, [visibleTramTile])).toEqual([signs[0]])
+    expect(filterRoadSigns(signs, [topologyTile(10, 20, 3, 0)])).toEqual([signs[3]])
+    expect(filterRoadSigns(signs, [topologyTile(99, 99, 0, 0)])).toEqual([])
   })
 
   it('指定座標に近い駅を距離順で返す', () => {

@@ -182,6 +182,27 @@ export interface WayTopologySnapshot {
   tiles: WayTopologyTile[]
 }
 
+export type RoadSignDirection = 'north' | 'east' | 'south' | 'west'
+
+export interface RoadSign {
+  position: { x: number; y: number; z: number }
+  waytype: string
+  kind: string
+  directions: RoadSignDirection[]
+  state: string | null
+  company_id: number | null
+  descriptor_name: string
+}
+
+export interface RoadSignList {
+  api_version: 'v1'
+  world_epoch: number
+  sync_step: number
+  snapshot_sequence: number
+  generated_at_ms: number
+  road_signs: RoadSign[]
+}
+
 export interface DisplayedConvoy extends ConvoyPosition {
   name: string
   company_id: number | null
@@ -199,6 +220,7 @@ export interface ViewerSnapshot {
   companies: Company[]
   lines: DisplayedLine[]
   wayTopology: WayTopologyTile[]
+  roadSigns: RoadSign[]
 }
 
 export interface LayerVisibility {

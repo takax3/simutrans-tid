@@ -94,6 +94,13 @@ const snapshot: ViewerSnapshot = {
       { index: 1, position: { x: 700, y: 400, z: 1 }, stop_id: 103 },
     ],
   }],
+  roadSigns: [{
+    position: { x: 850, y: 550, z: 2 }, waytype: 'track', kind: 'signal',
+    directions: ['east'], state: 'red', company_id: 5, descriptor_name: 'rail-signal',
+  }, {
+    position: { x: 650, y: 350, z: 1 }, waytype: 'road', kind: 'signal',
+    directions: ['west'], state: 'green', company_id: 5, descriptor_name: 'road-signal',
+  }],
 }
 
 const context = {
@@ -132,6 +139,7 @@ beforeEach(() => {
     stops: snapshot.stops,
     stopTiles: snapshot.stopTiles,
     lines: snapshot.lines,
+    roadSigns: snapshot.roadSigns,
   })
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as never)
 })
@@ -171,19 +179,19 @@ describe('App', () => {
     await waitFor(() => expect(loadViewerSnapshot).toHaveBeenCalledTimes(1))
   })
 
-  it('制限方向の設定を保持しつつ線路レイヤーOFF中は無効にする', async () => {
+  it('信号表示の設定を保持しつつ線路レイヤーOFF中は無効にする', async () => {
     const user = userEvent.setup()
     render(<App />)
     await screen.findByLabelText('1500×1000の編成位置マップ')
-    const restrictions = screen.getByRole('checkbox', { name: '制限方向を表示' })
+    const signals = screen.getByRole('checkbox', { name: '信号を表示' })
     const ways = screen.getByRole('checkbox', { name: '線路レイヤー' })
-    expect(restrictions).toBeChecked()
+    expect(signals).toBeChecked()
     await user.click(ways)
-    expect(restrictions).toBeDisabled()
-    expect(restrictions).toBeChecked()
+    expect(signals).toBeDisabled()
+    expect(signals).toBeChecked()
     await user.click(ways)
-    expect(restrictions).toBeEnabled()
-    expect(restrictions).toBeChecked()
+    expect(signals).toBeEnabled()
+    expect(signals).toBeChecked()
   })
 
   it('自動更新の切替・間隔変更と、エラー時のCanvas保持ができる', async () => {
@@ -351,6 +359,7 @@ describe('App', () => {
       stops: selectableSnapshot.stops,
       stopTiles: selectableSnapshot.stopTiles,
       lines: selectableSnapshot.lines,
+      roadSigns: selectableSnapshot.roadSigns,
     })
     await user.click(screen.getByRole('button', { name: '↻今すぐ更新' }))
     expect(await screen.findByText('2タイル・0編成')).toBeInTheDocument()

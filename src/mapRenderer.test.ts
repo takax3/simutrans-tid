@@ -117,36 +117,45 @@ describe('calculateBackingScale', () => {
     expect(operations).not.toContain('lineTo:10.5,20')
   })
 
-  it('blocked_ribiの禁止側を重ね、高倍率では終端バーを描く', () => {
-    const operations: string[] = []
+  it('方向付き信号を向きごとの三角形、方向なし信号を円で描画する', () => {
+    const arcs: Array<[number, number, number, string]> = []
+    const triangleTips: Array<[number, number]> = []
     const context = {
+      fillStyle: '',
       setTransform: () => undefined, clearRect: () => undefined, fillRect: () => undefined,
       strokeRect: () => undefined, beginPath: () => undefined,
-      moveTo: (x: number, y: number) => operations.push(`moveTo:${x},${y}`),
-      lineTo: (x: number, y: number) => operations.push(`lineTo:${x},${y}`),
-      stroke: () => undefined, arc: () => undefined, fill: () => undefined, fillText: () => undefined,
+      moveTo(x: number, y: number) {
+        if (this.fillStyle === '#d83a32') triangleTips.push([x, y])
+      },
+      lineTo: () => undefined, stroke: () => undefined,
+      arc(x: number, y: number, radius: number) { arcs.push([x, y, radius, this.fillStyle]) },
+      fill: () => undefined, fillText: () => undefined,
     }
     const canvas = { width: 0, height: 0, style: {}, getContext: () => context } as unknown as HTMLCanvasElement
-    const topology = [{
-      x: 10, y: 20, z: 2, waytype: 'track', physical_ribi: 0, blocked_ribi: 2,
-      north_z: null, east_z: 2, south_z: null, west_z: null,
+    const signals = [{
+      position: { x: 10, y: 20, z: 2 }, waytype: 'track', kind: 'signal',
+      directions: ['north' as const, 'east' as const, 'south' as const, 'west' as const],
+      state: 'red', company_id: 1, descriptor_name: 'signal',
+    }, {
+      position: { x: 30, y: 40, z: 2 }, waytype: 'track', kind: 'signal',
+      directions: [], state: 'green', company_id: 1, descriptor_name: 'signal',
     }]
     const layers = { ways: true, lines: false, stops: false, convoys: false }
-    drawMap(canvas, 100, 100, [], [], [], [], topology, [], layers, true, 1, true)
-    expect(operations).toContain('lineTo:10.5,20')
+    drawMap(canvas, 100, 100, [], [], [], [], [], [], layers, true, 2, signals, true)
+    expect(triangleTips).toEqual(expect.arrayContaining([
+      [10, 19.75], [10.25, 20], [10, 20.25], [9.75, 20],
+    ]))
+    expect(arcs).toContainEqual([30, 40, 1.25, '#22a447'])
 
-    operations.length = 0
-    drawMap(canvas, 100, 100, [], [], [], [], topology, [], layers, true, 3, true)
-    expect(operations).toContain('moveTo:10.5,19.333333333333332')
-    expect(operations).toContain('lineTo:10.5,20.666666666666668')
+    arcs.length = 0
+    triangleTips.length = 0
+    drawMap(canvas, 100, 100, [], [], [], [], [], [], { ...layers, ways: false }, true, 2, signals, true)
+    expect(arcs).toEqual([])
+    expect(triangleTips).toEqual([])
 
-    operations.length = 0
-    drawMap(canvas, 100, 100, [], [], [], [], topology, [], layers, true, 3, false)
-    expect(operations).not.toContain('lineTo:10.5,20')
-
-    operations.length = 0
-    drawMap(canvas, 100, 100, [], [], [], [], topology, [], { ...layers, ways: false }, true, 3, true)
-    expect(operations).not.toContain('lineTo:10.5,20')
+    drawMap(canvas, 100, 100, [], [], [], [], [], [], layers, true, 2, signals, false)
+    expect(arcs).toEqual([])
+    expect(triangleTips).toEqual([])
   })
 
   it('起点ピンと切断箇所のハサミをズーム補正して描画する', () => {
@@ -166,7 +175,7 @@ describe('calculateBackingScale', () => {
       north_z: null, east_z: null, south_z: null, west_z: null,
     }
     const cut = { ...seed, x: 14 }
-    drawMap(canvas, 100, 100, [], [], [], [], [seed], [], { ways: true, lines: false, stops: false, convoys: false }, true, 2, true, seed, [cut])
+    drawMap(canvas, 100, 100, [], [], [], [], [seed], [], { ways: true, lines: false, stops: false, convoys: false }, true, 2, [], true, seed, [cut])
     expect(arcs).toContainEqual([10, 18.25, 2.5])
     expect(labels).toContainEqual(['✂', 14, 20])
   })
