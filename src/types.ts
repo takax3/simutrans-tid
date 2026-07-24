@@ -48,12 +48,34 @@ export interface ConvoyList {
 export interface Stop {
   id: number
   name: string
-  company_ids: number[]
+  owner_company_id: number | null
+  allowed_company_ids: number[]
   position: { x: number; y: number; z: number }
   passenger_waiting: number
   passenger_capacity: number
   arrived_last_month: number
   departed_last_month: number
+}
+
+export interface Company {
+  id: number
+  name: string
+  current_cash: number
+  public_service: boolean
+  ai_type: string
+  ai_active: boolean
+  locked: boolean
+  primary_color_index: number
+  secondary_color_index: number
+}
+
+export interface CompanyList {
+  api_version: 'v1'
+  world_epoch: number
+  sync_step: number
+  snapshot_sequence: number
+  generated_at_ms: number
+  companies: Company[]
 }
 
 export interface StopList {
@@ -135,6 +157,7 @@ export interface ViewerSnapshot {
   convoyMetadata: Convoy[]
   convoys: DisplayedConvoy[]
   stops: Stop[]
+  companies: Company[]
   lines: DisplayedLine[]
 }
 

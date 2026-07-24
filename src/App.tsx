@@ -36,6 +36,7 @@ function App() {
   const [dragging, setDragging] = useState(false)
   const [selectedConvoyTypes, setSelectedConvoyTypes] = useState(() => new Set(defaultConvoyTypes))
   const [alignRoutesToStops, setAlignRoutesToStops] = useState(true)
+  const [colorLinesByCompany, setColorLinesByCompany] = useState(true)
   const [showAllStops, setShowAllStops] = useState(false)
   const [layers, setLayers] = useState<LayerVisibility>({ lines: true, convoys: true, stops: true })
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
@@ -98,6 +99,11 @@ function App() {
 
   const displayedStops = showAllStops ? (snapshot?.stops ?? []) : filteredStops
 
+  const companiesById = useMemo(
+    () => new Map((snapshot?.companies ?? []).map((company) => [company.id, company])),
+    [snapshot?.companies],
+  )
+
   const groups = useMemo(() => groupConvoysByPosition(displayedConvoys), [displayedConvoys])
 
   const toggleConvoyType = (waytype: string) => {
@@ -129,6 +135,7 @@ function App() {
             time: refreshed.time,
             convoys: refreshed.convoys,
             stops: refreshed.stops,
+            companies: refreshed.companies,
           } : current)
         }
       }
@@ -173,11 +180,13 @@ function App() {
       snapshot.map.size.height,
       groups,
       displayedStops,
+      snapshot.companies,
       renderedLines,
       layers,
+      colorLinesByCompany,
       zoom,
     )
-  }, [displayedStops, groups, layers, renderedLines, snapshot, zoom])
+  }, [colorLinesByCompany, displayedStops, groups, layers, renderedLines, snapshot, zoom])
 
   const zoomAtPoint = useCallback((requestedZoom: number, clientX: number, clientY: number) => {
     const viewport = viewportRef.current
@@ -479,6 +488,16 @@ function App() {
             <label className="layer-suboption">
               <input
                 type="checkbox"
+                aria-label="路線を会社色にする"
+                checked={colorLinesByCompany}
+                disabled={!layers.lines}
+                onChange={(event) => setColorLinesByCompany(event.target.checked)}
+              />
+              <span>会社色にする</span>
+            </label>
+            <label className="layer-suboption">
+              <input
+                type="checkbox"
                 aria-label="路線を駅に合わせる"
                 checked={alignRoutesToStops}
                 disabled={!layers.lines}
@@ -577,7 +596,10 @@ function App() {
                       <div><dt>前月到着</dt><dd>{stop.arrived_last_month.toLocaleString()}</dd></div>
                       <div><dt>前月出発</dt><dd>{stop.departed_last_month.toLocaleString()}</dd></div>
                       <div><dt>座標</dt><dd>{stop.position.x}, {stop.position.y}, z{stop.position.z}</dd></div>
-                      <div><dt>会社ID</dt><dd>{stop.company_ids.join(', ') || '—'}</dd></div>
+                      <div><dt>所有会社</dt><dd>{stop.owner_company_id === null
+                        ? '—'
+                        : `${companiesById.get(stop.owner_company_id)?.name || '不明'} (#${stop.owner_company_id})`}</dd></div>
+                      <div><dt>停車可能会社ID</dt><dd>{stop.allowed_company_ids.join(', ') || '—'}</dd></div>
                     </dl>
                   </article>
                 ))}

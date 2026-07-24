@@ -1,4 +1,5 @@
-import type { DisplayedLine, LayerVisibility, PositionGroup, Stop } from './types'
+import { companyPrimaryColor } from './palette'
+import type { Company, DisplayedLine, LayerVisibility, PositionGroup, Stop } from './types'
 
 const COLORS = {
   background: '#edf0e8',
@@ -10,8 +11,8 @@ const COLORS = {
   other: '#65558f',
   markerBorder: '#ffffff',
   stop: '#263b50',
-  stopBusy: '#c95c2c',
   stopBorder: '#ffffff',
+  stopBusyBorder: '#c95c2c',
   text: '#24342f',
 }
 
@@ -41,14 +42,21 @@ export function lineColor(colorIndex: number): string {
   return `hsl(${hue} 67% 42% / 0.58)`
 }
 
+export function companyLineColor(company: Company | undefined): string | null {
+  const color = company ? companyPrimaryColor(company) : null
+  return color ? `${color}94` : null
+}
+
 export function drawMap(
   canvas: HTMLCanvasElement,
   width: number,
   height: number,
   groups: PositionGroup[],
   stops: Stop[],
+  companies: Company[],
   lines: DisplayedLine[],
   layers: LayerVisibility,
+  colorLinesByCompany: boolean,
   zoom: number,
 ): void {
   const backingScale = calculateBackingScale(
@@ -90,6 +98,8 @@ export function drawMap(
     context.stroke()
   }
 
+  const companiesById = new Map(companies.map((company) => [company.id, company]))
+
   if (layers.lines) {
     context.lineCap = 'round'
     context.lineJoin = 'round'
@@ -97,7 +107,9 @@ export function drawMap(
     for (const line of lines) {
       if (line.entries.length < 2) continue
       context.beginPath()
-      context.strokeStyle = lineColor(line.color_index)
+      context.strokeStyle = colorLinesByCompany
+        ? companyLineColor(companiesById.get(line.company_id)) ?? lineColor(line.color_index)
+        : lineColor(line.color_index)
       context.moveTo(line.entries[0].position.x, line.entries[0].position.y)
       for (const entry of line.entries.slice(1)) {
         context.lineTo(entry.position.x, entry.position.y)
@@ -111,8 +123,11 @@ export function drawMap(
     for (const stop of stops) {
       const isBusy = stop.passenger_capacity > 0
         && stop.passenger_waiting / stop.passenger_capacity >= 0.8
-      context.fillStyle = isBusy ? COLORS.stopBusy : COLORS.stop
-      context.strokeStyle = COLORS.stopBorder
+      const owner = stop.owner_company_id === null
+        ? undefined
+        : companiesById.get(stop.owner_company_id)
+      context.fillStyle = owner ? companyPrimaryColor(owner) ?? COLORS.stop : COLORS.stop
+      context.strokeStyle = isBusy ? COLORS.stopBusyBorder : COLORS.stopBorder
       context.lineWidth = 1.5 / zoom
       context.fillRect(
         stop.position.x - stopRadius,

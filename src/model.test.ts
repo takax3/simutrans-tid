@@ -45,18 +45,18 @@ describe('viewer model', () => {
 
   it('指定座標に近い駅を距離順で返す', () => {
     const stops = [
-      { id: 1, name: 'A', company_ids: [1], position: { x: 10, y: 10, z: 0 }, passenger_waiting: 0, passenger_capacity: 0, arrived_last_month: 0, departed_last_month: 0 },
-      { id: 2, name: 'B', company_ids: [1], position: { x: 13, y: 10, z: 0 }, passenger_waiting: 0, passenger_capacity: 0, arrived_last_month: 0, departed_last_month: 0 },
-      { id: 3, name: 'C', company_ids: [1], position: { x: 30, y: 30, z: 0 }, passenger_waiting: 0, passenger_capacity: 0, arrived_last_month: 0, departed_last_month: 0 },
+      { id: 1, name: 'A', owner_company_id: 1, allowed_company_ids: [1], position: { x: 10, y: 10, z: 0 }, passenger_waiting: 0, passenger_capacity: 0, arrived_last_month: 0, departed_last_month: 0 },
+      { id: 2, name: 'B', owner_company_id: 1, allowed_company_ids: [1], position: { x: 13, y: 10, z: 0 }, passenger_waiting: 0, passenger_capacity: 0, arrived_last_month: 0, departed_last_month: 0 },
+      { id: 3, name: 'C', owner_company_id: 1, allowed_company_ids: [1], position: { x: 30, y: 30, z: 0 }, passenger_waiting: 0, passenger_capacity: 0, arrived_last_month: 0, departed_last_month: 0 },
     ]
     expect(findStopsAt(stops, 11, 10, 5).map((stop) => stop.id)).toEqual([1, 2])
   })
 
   it('選択中路線のscheduleに含まれる駅だけを重複なく抽出する', () => {
     const stops: Stop[] = [
-      { id: 1, name: '鉄道駅', company_ids: [1], position: { x: 10, y: 10, z: 0 }, passenger_waiting: 0, passenger_capacity: 0, arrived_last_month: 0, departed_last_month: 0 },
-      { id: 2, name: '共用駅', company_ids: [1], position: { x: 20, y: 20, z: 0 }, passenger_waiting: 0, passenger_capacity: 0, arrived_last_month: 0, departed_last_month: 0 },
-      { id: 3, name: 'バス停', company_ids: [1], position: { x: 30, y: 30, z: 0 }, passenger_waiting: 0, passenger_capacity: 0, arrived_last_month: 0, departed_last_month: 0 },
+      { id: 1, name: '鉄道駅', owner_company_id: 1, allowed_company_ids: [1], position: { x: 10, y: 10, z: 0 }, passenger_waiting: 0, passenger_capacity: 0, arrived_last_month: 0, departed_last_month: 0 },
+      { id: 2, name: '共用駅', owner_company_id: 1, allowed_company_ids: [1], position: { x: 20, y: 20, z: 0 }, passenger_waiting: 0, passenger_capacity: 0, arrived_last_month: 0, departed_last_month: 0 },
+      { id: 3, name: 'バス停', owner_company_id: 1, allowed_company_ids: [1], position: { x: 30, y: 30, z: 0 }, passenger_waiting: 0, passenger_capacity: 0, arrived_last_month: 0, departed_last_month: 0 },
     ]
     const lines: DisplayedLine[] = [{
       id: 1, name: '鉄道路線', company_id: 1, waytype: 'track', convoy_count: 1,
@@ -73,7 +73,7 @@ describe('viewer model', () => {
 
   it('停車駅の路線座標だけを駅APIの位置へ合わせる', () => {
     const stops: Stop[] = [
-      { id: 1, name: '中央駅', company_ids: [1], position: { x: 100, y: 200, z: 3 }, passenger_waiting: 0, passenger_capacity: 0, arrived_last_month: 0, departed_last_month: 0 },
+      { id: 1, name: '中央駅', owner_company_id: 1, allowed_company_ids: [1], position: { x: 100, y: 200, z: 3 }, passenger_waiting: 0, passenger_capacity: 0, arrived_last_month: 0, departed_last_month: 0 },
     ]
     const lines: DisplayedLine[] = [{
       id: 1, name: '中央線', company_id: 1, waytype: 'track', convoy_count: 1,

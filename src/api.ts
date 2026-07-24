@@ -1,7 +1,7 @@
 import { parseConvoyPositions } from './csv'
 import { joinConvoys } from './model'
 import type {
-  ConvoyList, DisplayedLine, LineList, LineSchedule, MapInfo, PositionsSnapshot,
+  CompanyList, ConvoyList, DisplayedLine, LineList, LineSchedule, MapInfo, PositionsSnapshot,
   StopList, TimeSnapshot, ViewerSnapshot,
 } from './types'
 
@@ -79,6 +79,10 @@ export async function fetchStops(): Promise<StopList> {
   return fetchJson<StopList>('/api/v1/stops')
 }
 
+export async function fetchCompanies(): Promise<CompanyList> {
+  return fetchJson<CompanyList>('/api/v1/companies')
+}
+
 export async function fetchLines(): Promise<LineList> {
   return fetchJson<LineList>('/api/v1/lines?waytype=all')
 }
@@ -99,13 +103,14 @@ export async function fetchPositions(): Promise<PositionsSnapshot> {
 
 export async function loadViewerSnapshot(): Promise<ViewerSnapshot> {
   for (let attempt = 0; attempt < BOOTSTRAP_ATTEMPTS; attempt += 1) {
-    const [map, convoyList, positionList, stopList, lineList] = await Promise.all([
-      fetchMapInfo(), fetchConvoys(), fetchPositions(), fetchStops(), fetchLines(),
+    const [map, convoyList, positionList, stopList, companyList, lineList] = await Promise.all([
+      fetchMapInfo(), fetchConvoys(), fetchPositions(), fetchStops(), fetchCompanies(), fetchLines(),
     ])
     if (
       map.world_epoch === convoyList.world_epoch
       && map.world_epoch === positionList.worldEpoch
       && map.world_epoch === stopList.world_epoch
+      && map.world_epoch === companyList.world_epoch
       && map.world_epoch === lineList.world_epoch
     ) {
       const schedules = await Promise.all(lineList.lines.map((line) => fetchLineSchedule(line.id)))
@@ -122,6 +127,7 @@ export async function loadViewerSnapshot(): Promise<ViewerSnapshot> {
         convoyMetadata: convoyList.convoys,
         convoys: joinConvoys(convoyList.convoys, positionList.positions),
         stops: stopList.stops,
+        companies: companyList.companies,
         lines,
       }
     }
@@ -136,17 +142,21 @@ export type PositionRefresh =
       time: TimeSnapshot['time']
       convoys: ViewerSnapshot['convoys']
       stops: ViewerSnapshot['stops']
+      companies: ViewerSnapshot['companies']
     }
 
 export async function refreshPositions(
   worldEpoch: number,
   metadata: ViewerSnapshot['convoyMetadata'],
 ): Promise<PositionRefresh> {
-  const [time, positions, stopList] = await Promise.all([fetchTime(), fetchPositions(), fetchStops()])
+  const [time, positions, stopList, companyList] = await Promise.all([
+    fetchTime(), fetchPositions(), fetchStops(), fetchCompanies(),
+  ])
   if (
     time.world_epoch !== worldEpoch
     || positions.worldEpoch !== worldEpoch
     || stopList.world_epoch !== worldEpoch
+    || companyList.world_epoch !== worldEpoch
   ) {
     return { epochChanged: true }
   }
@@ -155,5 +165,6 @@ export async function refreshPositions(
     time: time.time,
     convoys: joinConvoys(metadata, positions.positions),
     stops: stopList.stops,
+    companies: companyList.companies,
   }
 }

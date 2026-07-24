@@ -59,15 +59,20 @@ const snapshot: ViewerSnapshot = {
     },
   ],
   stops: [{
-    id: 101, name: '中央駅', company_ids: [5],
+    id: 101, name: '中央駅', owner_company_id: 5, allowed_company_ids: [5],
     position: { x: 900, y: 600, z: 2 },
     passenger_waiting: 120, passenger_capacity: 500,
     arrived_last_month: 3200, departed_last_month: 3100,
   }, {
-    id: 103, name: '市役所前', company_ids: [5],
+    id: 103, name: '市役所前', owner_company_id: 5, allowed_company_ids: [5],
     position: { x: 700, y: 400, z: 1 },
     passenger_waiting: 20, passenger_capacity: 100,
     arrived_last_month: 800, departed_last_month: 790,
+  }],
+  companies: [{
+    id: 5, name: '常陸交通', current_cash: 100_000, public_service: false,
+    ai_type: 'human', ai_active: false, locked: false,
+    primary_color_index: 40, secondary_color_index: 64,
   }],
   lines: [{
     id: 3, name: '中央線', company_id: 5, waytype: 'track', convoy_count: 1,
@@ -118,6 +123,7 @@ beforeEach(() => {
     time: snapshot.time,
     convoys: snapshot.convoys,
     stops: snapshot.stops,
+    companies: snapshot.companies,
   })
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as never)
 })
@@ -262,12 +268,15 @@ describe('App', () => {
     render(<App />)
     await screen.findByLabelText('1500×1000の編成位置マップ')
     const lineLayer = screen.getByRole('checkbox', { name: '路線レイヤー' })
+    const companyLineColor = screen.getByRole('checkbox', { name: '路線を会社色にする' })
     const alignRoutes = screen.getByRole('checkbox', { name: '路線を駅に合わせる' })
     const convoyLayer = screen.getByRole('checkbox', { name: '編成レイヤー' })
     const stopLayer = screen.getByRole('checkbox', { name: '駅レイヤー' })
     const allStops = screen.getByRole('checkbox', { name: '全駅表示' })
 
     expect(lineLayer).toBeChecked()
+    expect(companyLineColor).toBeChecked()
+    expect(companyLineColor).toBeEnabled()
     expect(alignRoutes).toBeChecked()
     expect(alignRoutes).toBeEnabled()
     expect(convoyLayer).toBeChecked()
@@ -277,7 +286,12 @@ describe('App', () => {
     expect(screen.getByText('路線').closest('label')).toHaveTextContent('1')
     await user.click(lineLayer)
     expect(lineLayer).not.toBeChecked()
+    expect(companyLineColor).toBeDisabled()
     expect(alignRoutes).toBeDisabled()
+    await user.click(lineLayer)
+    expect(companyLineColor).toBeChecked()
+    await user.click(companyLineColor)
+    expect(companyLineColor).not.toBeChecked()
     expect(convoyLayer).toBeChecked()
     expect(stopLayer).toBeChecked()
     await user.click(stopLayer)
@@ -331,5 +345,18 @@ describe('App', () => {
     expect(screen.getByText('編成').closest('label')).toHaveTextContent('3')
     expect(screen.getByText('路線').closest('label')).toHaveTextContent('2')
     expect(screen.getByText('駅').closest('label')).toHaveTextContent('2')
+  })
+
+  it('駅ホバーに所有会社と停車可能会社IDを表示する', async () => {
+    render(<App />)
+    const canvas = await screen.findByLabelText('1500×1000の編成位置マップ')
+    Object.defineProperty(canvas, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, right: 1500, bottom: 1000, width: 1500, height: 1000, x: 0, y: 0, toJSON: () => undefined }),
+    })
+
+    fireEvent.pointerMove(canvas, { clientX: 900, clientY: 600, pointerType: 'mouse' })
+
+    expect(await screen.findByText('常陸交通 (#5)')).toBeInTheDocument()
+    expect(screen.getByText('停車可能会社ID').parentElement).toHaveTextContent('5')
   })
 })
