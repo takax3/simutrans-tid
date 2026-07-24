@@ -3,6 +3,7 @@ import { loadViewerSnapshot, refreshPositions } from './api'
 import {
   alignLinesToStops, clampZoom, filterConvoysForWayTopology,
   filterStopsForLines, findGroupAt, findStopsAt, findWayTopologyCandidatesAt,
+  stopTilesOnWayTopology, visibleStopTiles,
   groupConvoysByPosition, topologyAfterCuts, wayTopologyKey, ZOOM_STEP, zoomByWheelDelta,
 } from './model'
 import { drawMap } from './mapRenderer'
@@ -159,6 +160,26 @@ function App() {
   )
 
   const displayedStops = showAllStops ? (snapshot?.stops ?? []) : filteredStops
+  const displayedStopTiles = useMemo(
+    () => visibleStopTiles(
+      snapshot?.stopTiles ?? [],
+      new Set(displayedStops.map((stop) => stop.id)),
+    ),
+    [displayedStops, snapshot?.stopTiles],
+  )
+  const selectedStopTiles = useMemo(
+    () => selectedTopology
+      ? stopTilesOnWayTopology(snapshot?.stopTiles ?? [], selectedTopology)
+      : null,
+    [selectedTopology, snapshot?.stopTiles],
+  )
+  const selectedStops = useMemo(() => {
+    if (!selectedStopTiles) return null
+    const stopIds = new Set(selectedStopTiles.map((tile) => tile.stop_id))
+    return (snapshot?.stops ?? []).filter((stop) => stopIds.has(stop.id))
+  }, [selectedStopTiles, snapshot?.stops])
+  const renderedStops = selectedStops ?? displayedStops
+  const renderedStopTiles = selectedStopTiles ?? displayedStopTiles
 
   const companiesById = useMemo(
     () => new Map((snapshot?.companies ?? []).map((company) => [company.id, company])),
@@ -168,7 +189,7 @@ function App() {
   const groups = useMemo(() => groupConvoysByPosition(displayedConvoys), [displayedConvoys])
 
   const renderedLayers = selectedTopology
-    ? { ...layers, ways: true, lines: false, convoys: true, stops: false }
+    ? { ...layers, ways: true, lines: false, convoys: true, stops: true }
     : layers
 
   const clearTopologySelection = useCallback(() => {
@@ -306,6 +327,7 @@ function App() {
             convoyMetadata: refreshed.convoyMetadata,
             convoys: refreshed.convoys,
             stops: refreshed.stops,
+            stopTiles: refreshed.stopTiles,
             lines: refreshed.lines,
           } : current)
         }
@@ -369,7 +391,8 @@ function App() {
       snapshot.map.size.width,
       snapshot.map.size.height,
       groups,
-      displayedStops,
+      renderedStops,
+      renderedStopTiles,
       snapshot.companies,
       displayedWayTopology,
       renderedLines,
@@ -380,7 +403,7 @@ function App() {
       topologySeed,
       cutTopologyTiles,
     )
-  }, [colorLinesByCompany, cutTopologyTiles, displayedStops, displayedWayTopology, groups, renderedLayers, renderedLines, showRestrictedDirections, snapshot, topologySeed, zoom])
+  }, [colorLinesByCompany, cutTopologyTiles, displayedWayTopology, groups, renderedLayers, renderedLines, renderedStopTiles, renderedStops, showRestrictedDirections, snapshot, topologySeed, zoom])
 
   const applyTopologyCandidate = useCallback((action: CandidateAction, tile: WayTopologyTile) => {
     setTopologyCandidates(null)
@@ -598,7 +621,7 @@ function App() {
     const y = (event.clientY - rect.top) * (snapshot!.map.size.height / rect.height)
     const group = renderedLayers.convoys ? findGroupAt(groups, x, y, 12 / zoom) : null
     setHoveredGroup(group)
-    setHoveredStops(group || !renderedLayers.stops ? [] : findStopsAt(displayedStops, x, y, 10 / zoom))
+    setHoveredStops(group || !renderedLayers.stops ? [] : findStopsAt(renderedStops, x, y, 10 / zoom))
     setTooltipPosition({ x: event.clientX + 14, y: event.clientY + 14 })
   }
 

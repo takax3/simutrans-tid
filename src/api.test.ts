@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchCompanies, fetchLineSchedule, fetchPositions, fetchWayTopology, loadViewerSnapshot, refreshPositions } from './api'
+import { fetchCompanies, fetchLineSchedule, fetchPositions, fetchStopTiles, fetchWayTopology, loadViewerSnapshot, refreshPositions } from './api'
 import type { ViewerSnapshot } from './types'
 
 const map = {
@@ -22,6 +22,10 @@ const stops = {
     passenger_waiting: 120, passenger_capacity: 500,
     arrived_last_month: 3200, departed_last_month: 3100,
   }],
+}
+const stopTiles = {
+  api_version: 'v1', world_epoch: 2, sync_step: 1, snapshot_sequence: 4, generated_at_ms: 4,
+  stops: [{ stop_id: 101, tiles: [{ x: 899, y: 600, z: 2 }, { x: 900, y: 600, z: 2 }] }],
 }
 const companies = {
   api_version: 'v1', world_epoch: 2, sync_step: 1, snapshot_sequence: 5, generated_at_ms: 5,
@@ -60,6 +64,7 @@ const viewerSnapshot: ViewerSnapshot = {
   convoyMetadata: list.convoys,
   convoys: [],
   stops: stops.stops,
+  stopTiles: [{ stop_id: 101, x: 899, y: 600, z: 2 }, { stop_id: 101, x: 900, y: 600, z: 2 }],
   companies: companies.companies,
   lines: [{ ...lines.lines[0], entries: schedule3.entries }],
   wayTopology: [],
@@ -80,6 +85,7 @@ describe('Simutrans API client', () => {
         'X-Simutrans-World-Epoch': '2', 'X-Simutrans-Snapshot-Sequence': '3',
       } }))
       .mockResolvedValueOnce(response(JSON.stringify(stops)))
+      .mockResolvedValueOnce(response(JSON.stringify(stopTiles)))
       .mockResolvedValueOnce(response(JSON.stringify(companies)))
       .mockResolvedValueOnce(response(JSON.stringify(lines)))
       .mockResolvedValueOnce(response(topologyCsv, { headers: topologyHeaders }))
@@ -90,6 +96,7 @@ describe('Simutrans API client', () => {
     expect(loaded.map.size).toEqual({ width: 1500, height: 1000 })
     expect(loaded.convoys[0]).toMatchObject({ convoy_id: 11, name: '11号', x: 910 })
     expect(loaded.stops[0]).toMatchObject({ id: 101, name: '中央駅' })
+    expect(loaded.stopTiles).toContainEqual({ stop_id: 101, x: 899, y: 600, z: 2 })
     expect(loaded.companies[0]).toMatchObject({ id: 5, primary_color_index: 40 })
     expect(loaded.lines).toHaveLength(2)
     expect(loaded.wayTopology[0]).toMatchObject({ x: 910, physical_ribi: 6, waytype: 'track' })
@@ -100,6 +107,7 @@ describe('Simutrans API client', () => {
     expect(requestedUrls.some((url) => url.endsWith('/convoy-positions?waytype=all'))).toBe(true)
     expect(requestedUrls.some((url) => url.endsWith('/lines?waytype=all'))).toBe(true)
     expect(requestedUrls.some((url) => url.endsWith('/companies'))).toBe(true)
+    expect(requestedUrls.some((url) => url.endsWith('/stop-tiles'))).toBe(true)
     expect(requestedUrls.some((url) => url.endsWith('/way-topology?waytype=all'))).toBe(true)
   })
 
@@ -109,6 +117,11 @@ describe('Simutrans API client', () => {
       worldEpoch: 2,
       tiles: [{ x: 910, y: 613, physical_ribi: 6, east_z: 2, north_z: null }],
     })
+  })
+
+  it('駅タイル一覧を取得する', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(JSON.stringify(stopTiles))))
+    await expect(fetchStopTiles()).resolves.toEqual(stopTiles)
   })
 
   it('503を利用者向けエラーにする', async () => {
@@ -167,6 +180,7 @@ describe('Simutrans API client', () => {
       .mockResolvedValueOnce(response(JSON.stringify(lines)))
       .mockResolvedValueOnce(response(JSON.stringify(schedule4)))
       .mockResolvedValueOnce(response(JSON.stringify(stopsWithNewStop)))
+      .mockResolvedValueOnce(response(JSON.stringify(stopTiles)))
     vi.stubGlobal('fetch', fetchMock)
     const refreshed = await refreshPositions(viewerSnapshot)
     expect(refreshed).toMatchObject({
@@ -174,7 +188,7 @@ describe('Simutrans API client', () => {
       lines: [{ id: 3 }, { id: 4 }],
       stops: [{ id: 101 }, { id: 90 }],
     })
-    expect(fetchMock).toHaveBeenCalledTimes(6)
+    expect(fetchMock).toHaveBeenCalledTimes(7)
   })
 
   it('接続不能を利用者向けエラーにする', async () => {
@@ -198,6 +212,7 @@ describe('Simutrans API client', () => {
         'X-Simutrans-World-Epoch': '2', 'X-Simutrans-Snapshot-Sequence': '3',
       } }))
       if (url.endsWith('/stops')) return Promise.resolve(response(JSON.stringify(stops)))
+      if (url.endsWith('/stop-tiles')) return Promise.resolve(response(JSON.stringify(stopTiles)))
       if (url.endsWith('/companies')) return Promise.resolve(response(JSON.stringify(companies)))
       if (url.includes('/lines?')) return Promise.resolve(response(JSON.stringify({ ...lines, lines: [lines.lines[0]] })))
       if (url.includes('/way-topology?')) return Promise.resolve(response(topologyCsv, { headers: topologyHeaders }))
@@ -205,6 +220,6 @@ describe('Simutrans API client', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
     await expect(loadViewerSnapshot()).rejects.toThrow('マップ切替中')
-    expect(fetchMock).toHaveBeenCalledTimes(32)
+    expect(fetchMock).toHaveBeenCalledTimes(36)
   })
 })

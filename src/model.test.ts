@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   alignLinesToStops, clampZoom, connectedWayTopology, filterConvoysForWayTopology,
   filterStopsForLines, findStopsAt, findWayTopologyAt, findWayTopologyCandidatesAt,
-  groupConvoysByPosition, joinConvoys, topologyAfterCuts, wayTopologyKey, zoomByWheelDelta,
+  groupConvoysByPosition, joinConvoys, stopTilesOnWayTopology, topologyAfterCuts,
+  visibleStopTiles, wayTopologyKey, zoomByWheelDelta,
 } from './model'
 import type { ConvoyPosition, DisplayedConvoy, DisplayedLine, Stop, WayTopologyTile } from './types'
 
@@ -27,6 +28,28 @@ describe('viewer model', () => {
       waytype: 'track', vehicle_count: 4, length_carunits: 32,
     }], [position])
     expect(joined[0]).toMatchObject({ name: '急行11号', line_id: 3, x: 910 })
+  })
+
+  it('表示対象駅のタイルだけを残し、同じ座標ではzが最大の駅を選ぶ', () => {
+    const tiles = [
+      { stop_id: 1, x: 10, y: 20, z: 1 },
+      { stop_id: 2, x: 10, y: 20, z: 5 },
+      { stop_id: 1, x: 11, y: 20, z: 1 },
+      { stop_id: 3, x: 12, y: 20, z: 9 },
+    ]
+    expect(visibleStopTiles(tiles, new Set([1, 2]))).toEqual([
+      { stop_id: 2, x: 10, y: 20, z: 5 },
+      { stop_id: 1, x: 11, y: 20, z: 1 },
+    ])
+  })
+
+  it('選択トポロジとx/y/zが一致する駅タイルだけを抽出する', () => {
+    const topology = [topologyTile(10, 20, 5, 0), topologyTile(11, 20, 5, 0)]
+    expect(stopTilesOnWayTopology([
+      { stop_id: 1, x: 10, y: 20, z: 5 },
+      { stop_id: 2, x: 10, y: 20, z: 1 },
+      { stop_id: 3, x: 12, y: 20, z: 5 },
+    ], topology)).toEqual([{ stop_id: 1, x: 10, y: 20, z: 5 }])
   })
 
   it('同じx,yの編成を一つの位置グループにまとめる', () => {

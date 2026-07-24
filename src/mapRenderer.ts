@@ -1,5 +1,5 @@
 import { companyPrimaryColor } from './palette'
-import type { Company, DisplayedLine, LayerVisibility, PositionGroup, Stop, WayTopologyTile } from './types'
+import type { Company, DisplayedLine, LayerVisibility, PositionGroup, Stop, StopTile, WayTopologyTile } from './types'
 
 const COLORS = {
   background: '#edf0e8',
@@ -53,6 +53,7 @@ export function drawMap(
   height: number,
   groups: PositionGroup[],
   stops: Stop[],
+  stopTiles: StopTile[],
   companies: Company[],
   wayTopology: WayTopologyTile[],
   lines: DisplayedLine[],
@@ -198,6 +199,18 @@ export function drawMap(
   }
 
   if (layers.stops) {
+    const stopsById = new Map(stops.map((stop) => [stop.id, stop]))
+    for (const tile of stopTiles) {
+      const stop = stopsById.get(tile.stop_id)
+      if (!stop) continue
+      const owner = stop.owner_company_id === null
+        ? undefined
+        : companiesById.get(stop.owner_company_id)
+      const color = owner ? companyPrimaryColor(owner) ?? COLORS.stop : COLORS.stop
+      context.fillStyle = `${color}66`
+      context.fillRect(tile.x - 0.5, tile.y - 0.5, 1, 1)
+    }
+
     const stopRadius = 4.5 / zoom
     for (const stop of stops) {
       const isBusy = stop.passenger_capacity > 0

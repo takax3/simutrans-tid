@@ -1,5 +1,5 @@
 import type {
-  Convoy, ConvoyPosition, DisplayedConvoy, DisplayedLine, PositionGroup, Stop, WayTopologyTile,
+  Convoy, ConvoyPosition, DisplayedConvoy, DisplayedLine, PositionGroup, Stop, StopTile, WayTopologyTile,
 } from './types'
 
 export const MIN_ZOOM = 0.25
@@ -176,6 +176,28 @@ export function filterStopsForLines(stops: Stop[], lines: DisplayedLine[]): Stop
     }
   }
   return stops.filter((stop) => stopIds.has(stop.id))
+}
+
+export function visibleStopTiles(stopTiles: StopTile[], visibleStopIds: Set<number>): StopTile[] {
+  const highestByCoordinate = new Map<string, StopTile>()
+  for (const tile of stopTiles) {
+    if (!visibleStopIds.has(tile.stop_id)) continue
+    const key = `${tile.x},${tile.y}`
+    const current = highestByCoordinate.get(key)
+    if (!current || tile.z > current.z) highestByCoordinate.set(key, tile)
+  }
+  return [...highestByCoordinate.values()]
+}
+
+export function stopTilesOnWayTopology(
+  stopTiles: StopTile[],
+  topology: WayTopologyTile[],
+): StopTile[] {
+  const topologyCoordinates = new Set(topology.map((tile) => `${tile.x},${tile.y},${tile.z}`))
+  const matchingTiles = stopTiles.filter((tile) => (
+    topologyCoordinates.has(`${tile.x},${tile.y},${tile.z}`)
+  ))
+  return visibleStopTiles(matchingTiles, new Set(matchingTiles.map((tile) => tile.stop_id)))
 }
 
 export function alignLinesToStops(lines: DisplayedLine[], stops: Stop[]): DisplayedLine[] {

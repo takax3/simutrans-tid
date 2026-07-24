@@ -69,6 +69,7 @@ const snapshot: ViewerSnapshot = {
     passenger_waiting: 20, passenger_capacity: 100,
     arrived_last_month: 800, departed_last_month: 790,
   }],
+  stopTiles: [{ stop_id: 101, x: 900, y: 600, z: 2 }],
   companies: [{
     id: 5, name: '常陸交通', current_cash: 100_000, public_service: false,
     ai_type: 'human', ai_active: false, locked: false,
@@ -129,6 +130,7 @@ beforeEach(() => {
     convoyMetadata: snapshot.convoyMetadata,
     convoys: snapshot.convoys,
     stops: snapshot.stops,
+    stopTiles: snapshot.stopTiles,
     lines: snapshot.lines,
   })
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as never)
@@ -297,6 +299,7 @@ describe('App', () => {
     const user = userEvent.setup()
     const selectableSnapshot: ViewerSnapshot = {
       ...snapshot,
+      stopTiles: [{ stop_id: 101, x: 910, y: 613, z: 2 }],
       wayTopology: [
         { x: 910, y: 613, z: 2, waytype: 'track', physical_ribi: 2, blocked_ribi: 0, north_z: null, east_z: 2, south_z: null, west_z: null },
         { x: 911, y: 613, z: 2, waytype: 'track', physical_ribi: 8, blocked_ribi: 0, north_z: null, east_z: null, south_z: null, west_z: 2 },
@@ -305,7 +308,7 @@ describe('App', () => {
     }
     vi.mocked(loadViewerSnapshot).mockResolvedValueOnce(selectableSnapshot)
     render(<App />)
-    await screen.findByLabelText('1500×1000の編成位置マップ')
+    const canvas = await screen.findByLabelText('1500×1000の編成位置マップ')
     const viewport = screen.getByTestId('map-viewport')
     Object.defineProperties(viewport, {
       getBoundingClientRect: {
@@ -314,6 +317,9 @@ describe('App', () => {
       setPointerCapture: { value: vi.fn() },
       releasePointerCapture: { value: vi.fn() },
     })
+    Object.defineProperty(canvas, 'getBoundingClientRect', {
+      value: () => ({ left: 0, top: 0, right: 1500, bottom: 1000, width: 1500, height: 1000, x: 0, y: 0, toJSON: () => undefined }),
+    })
 
     await user.click(screen.getByRole('button', { name: '路線網を選択' }))
     expect(viewport).toHaveClass('is-topology-select')
@@ -321,6 +327,8 @@ describe('App', () => {
     fireEvent(viewport, pointerEvent('pointerup', 21, 910, 613, 'mouse'))
 
     expect(await screen.findByText('2タイル・1編成')).toBeInTheDocument()
+    fireEvent.pointerMove(canvas, { clientX: 900, clientY: 600, pointerId: 22, pointerType: 'mouse' })
+    expect(await screen.findByText('#101 中央駅')).toBeInTheDocument()
     expect(screen.getByText('路線').closest('label')).toHaveTextContent('1')
     await user.click(screen.getByRole('button', { name: '現在の設定を保存' }))
     const saveDialog = screen.getByRole('dialog', { name: '路線網設定を保存' })
@@ -341,6 +349,7 @@ describe('App', () => {
         ? { ...convoy, x: 999, y: 999 }
         : convoy),
       stops: selectableSnapshot.stops,
+      stopTiles: selectableSnapshot.stopTiles,
       lines: selectableSnapshot.lines,
     })
     await user.click(screen.getByRole('button', { name: '↻今すぐ更新' }))

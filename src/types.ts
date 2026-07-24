@@ -87,6 +87,25 @@ export interface StopList {
   stops: Stop[]
 }
 
+export interface StopTile {
+  stop_id: number
+  x: number
+  y: number
+  z: number
+}
+
+export interface StopTileList {
+  api_version: 'v1'
+  world_epoch: number
+  sync_step: number
+  snapshot_sequence: number
+  generated_at_ms: number
+  stops: Array<{
+    stop_id: number
+    tiles: Array<{ x: number; y: number; z: number }>
+  }>
+}
+
 export interface Line {
   id: number
   name: string
@@ -176,6 +195,7 @@ export interface ViewerSnapshot {
   convoyMetadata: Convoy[]
   convoys: DisplayedConvoy[]
   stops: Stop[]
+  stopTiles: StopTile[]
   companies: Company[]
   lines: DisplayedLine[]
   wayTopology: WayTopologyTile[]

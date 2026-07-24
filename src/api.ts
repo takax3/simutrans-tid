@@ -2,7 +2,7 @@ import { parseConvoyPositions, parseWayTopology } from './csv'
 import { joinConvoys } from './model'
 import type {
   CompanyList, ConvoyList, DisplayedLine, LineList, LineSchedule, MapInfo, PositionsSnapshot,
-  StopList, TimeSnapshot, ViewerSnapshot, WayTopologySnapshot,
+  StopList, StopTile, StopTileList, TimeSnapshot, ViewerSnapshot, WayTopologySnapshot,
 } from './types'
 
 export const API_BASE_URL = 'http://127.0.0.1:13355'
@@ -79,6 +79,17 @@ export async function fetchStops(): Promise<StopList> {
   return fetchJson<StopList>('/api/v1/stops')
 }
 
+export async function fetchStopTiles(): Promise<StopTileList> {
+  return fetchJson<StopTileList>('/api/v1/stop-tiles')
+}
+
+function flattenStopTiles(response: StopTileList): StopTile[] {
+  return response.stops.flatMap((stop) => stop.tiles.map((tile) => ({
+    stop_id: stop.stop_id,
+    ...tile,
+  })))
+}
+
 export async function fetchCompanies(): Promise<CompanyList> {
   return fetchJson<CompanyList>('/api/v1/companies')
 }
@@ -112,13 +123,14 @@ export async function fetchWayTopology(): Promise<WayTopologySnapshot> {
 
 export async function loadViewerSnapshot(): Promise<ViewerSnapshot> {
   for (let attempt = 0; attempt < BOOTSTRAP_ATTEMPTS; attempt += 1) {
-    const [map, convoyList, positionList, stopList, companyList, lineList, topology] = await Promise.all([
-      fetchMapInfo(), fetchConvoys(), fetchPositions(), fetchStops(), fetchCompanies(), fetchLines(), fetchWayTopology(),
+    const [map, convoyList, positionList, stopList, stopTileList, companyList, lineList, topology] = await Promise.all([
+      fetchMapInfo(), fetchConvoys(), fetchPositions(), fetchStops(), fetchStopTiles(), fetchCompanies(), fetchLines(), fetchWayTopology(),
     ])
     if (
       map.world_epoch === convoyList.world_epoch
       && map.world_epoch === positionList.worldEpoch
       && map.world_epoch === stopList.world_epoch
+      && map.world_epoch === stopTileList.world_epoch
       && map.world_epoch === companyList.world_epoch
       && map.world_epoch === lineList.world_epoch
       && map.world_epoch === topology.worldEpoch
@@ -137,6 +149,7 @@ export async function loadViewerSnapshot(): Promise<ViewerSnapshot> {
         convoyMetadata: convoyList.convoys,
         convoys: joinConvoys(convoyList.convoys, positionList.positions),
         stops: stopList.stops,
+        stopTiles: flattenStopTiles(stopTileList),
         companies: companyList.companies,
         lines,
         wayTopology: topology.tiles,
@@ -154,6 +167,7 @@ export type PositionRefresh =
       convoyMetadata: ViewerSnapshot['convoyMetadata']
       convoys: ViewerSnapshot['convoys']
       stops: ViewerSnapshot['stops']
+      stopTiles: ViewerSnapshot['stopTiles']
       lines: ViewerSnapshot['lines']
     }
 
@@ -173,6 +187,7 @@ export async function refreshPositions(
 
   let lines = snapshot.lines
   let stops = snapshot.stops
+  let stopTiles = snapshot.stopTiles
   const knownLineIds = new Set(lines.map((line) => line.id))
   const unknownLineIds = new Set(convoyList.convoys
     .map((convoy) => convoy.line_id)
@@ -199,9 +214,13 @@ export async function refreshPositions(
       (entry) => entry.stop_id !== null && !knownStopIds.has(entry.stop_id),
     ))
     if (hasUnknownStop) {
-      const stopList = await fetchStops()
-      if (stopList.world_epoch !== snapshot.map.world_epoch) return { epochChanged: true }
+      const [stopList, stopTileList] = await Promise.all([fetchStops(), fetchStopTiles()])
+      if (
+        stopList.world_epoch !== snapshot.map.world_epoch
+        || stopTileList.world_epoch !== snapshot.map.world_epoch
+      ) return { epochChanged: true }
       stops = stopList.stops
+      stopTiles = flattenStopTiles(stopTileList)
     }
   }
 
@@ -211,6 +230,7 @@ export async function refreshPositions(
     convoyMetadata: convoyList.convoys,
     convoys: joinConvoys(convoyList.convoys, positions.positions),
     stops,
+    stopTiles,
     lines,
   }
 }
