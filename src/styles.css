@@ -86,7 +86,7 @@ h2 { margin: 0; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 15
 .map-layer-overlay em { color: #697570; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 9px; font-style: normal; }
 .map-layer-overlay .layer-suboption { grid-template-columns: 16px 1fr auto; min-height: 30px; padding-left: 27px; background: #e9ece7; color: #53615c; font-size: 10px; }
 .map-layer-overlay .layer-suboption:has(input:disabled) { color: #9aa29e; cursor: not-allowed; }
-.topology-tools-overlay { position: absolute; z-index: 8; top: 326px; right: 18px; display: grid; min-width: 172px; overflow: hidden; border: 1px solid rgba(21,34,31,.34); background: rgba(245,245,239,.96); box-shadow: 0 8px 28px rgba(21,34,31,.18); backdrop-filter: blur(8px); }
+.topology-tools-overlay { position: absolute; z-index: 8; top: 326px; right: 18px; display: grid; width: 214px; max-height: calc(100% - 344px); overflow: auto; border: 1px solid rgba(21,34,31,.34); background: rgba(245,245,239,.96); box-shadow: 0 8px 28px rgba(21,34,31,.18); backdrop-filter: blur(8px); }
 .topology-tools-overlay > strong { padding: 7px 10px; border-bottom: 1px solid #c3cac6; color: #68746f; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 8px; letter-spacing: .14em; }
 .topology-tools-overlay > button { min-height: 34px; border: 0; border-bottom: 1px solid #d9ddda; background: transparent; color: #263530; padding: 0 10px; text-align: left; font-size: 11px; cursor: pointer; }
 .topology-tools-overlay > button:hover:not(:disabled), .topology-tools-overlay > button.is-active { background: #d8ebe7; color: #056873; }
@@ -94,7 +94,14 @@ h2 { margin: 0; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 15
 .topology-tools-overlay small { color: #87928e; font-size: 8px; }
 .topology-selection-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border-bottom: 1px solid #d9ddda; background: #e9ece7; color: #53615c; font-size: 9px; }
 .topology-selection-summary button { border: 1px solid #71827c; background: #fff; color: #283a34; padding: 3px 6px; font: inherit; cursor: pointer; }
-.topology-tools-overlay > p { max-width: 172px; margin: 0; padding: 7px 9px; background: #fff0dc; color: #87451d; font-size: 9px; }
+.topology-tools-overlay > p { margin: 0; padding: 7px 9px; background: #fff0dc; color: #87451d; font-size: 9px; }
+.saved-topology-controls { display: grid; gap: 6px; padding: 8px; border-top: 1px solid #c3cac6; background: #eef0ec; }
+.saved-topology-controls label { display: grid; gap: 4px; color: #68746f; font-size: 9px; }
+.saved-topology-controls select { min-width: 0; width: 100%; border: 1px solid #9aa59f; background: #fff; color: #263530; padding: 5px; font-size: 10px; }
+.saved-topology-controls > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.saved-topology-controls button { min-height: 27px; border: 1px solid #89958f; background: #fff; color: #334640; padding: 3px 5px; font-size: 9px; cursor: pointer; }
+.saved-topology-controls button:hover:not(:disabled) { border-color: #087f8c; color: #056873; }
+.saved-topology-controls button:disabled { color: #a0a8a4; cursor: not-allowed; }
 .topology-candidate-popup { position: fixed; z-index: 30; display: grid; min-width: 190px; max-width: calc(100vw - 24px); border: 1px solid #5d6e68; background: #f8faf7; box-shadow: 0 12px 36px rgba(0,0,0,.28); }
 .topology-candidate-popup > strong { padding: 8px 10px; background: #24342f; color: #fff; font-size: 10px; }
 .topology-candidate-popup button { border: 0; border-bottom: 1px solid #d4dad6; background: transparent; padding: 8px 10px; color: #263530; text-align: left; font-size: 10px; cursor: pointer; }
@@ -106,6 +113,8 @@ h2 { margin: 0; font-family: Consolas, 'Cascadia Mono', monospace; font-size: 15
 .topology-confirm > div { display: flex; justify-content: flex-end; gap: 8px; }
 .topology-confirm button { border: 1px solid #71827c; background: #fff; color: #283a34; padding: 6px 10px; cursor: pointer; }
 .topology-confirm button.confirm-primary { border-color: #9e2d28; background: #b52d27; color: #fff; }
+.save-name-field { display: grid; gap: 5px; margin: 12px 0 16px; color: #68746f; font-size: 10px; }
+.save-name-field input { border: 1px solid #89958f; background: #fff; color: #263530; padding: 8px; font: inherit; }
 .layer-symbol { display: block; width: 8px; height: 8px; justify-self: center; }
 .layer-symbol.line { height: 3px; border-radius: 2px; background: #7b4db2; }
 .layer-symbol.way { height: 2px; background: #59635f; }

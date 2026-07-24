@@ -121,6 +121,7 @@ function pointerEvent(
 }
 
 beforeEach(() => {
+  localStorage.clear()
   vi.mocked(loadViewerSnapshot).mockResolvedValue(snapshot)
   vi.mocked(refreshPositions).mockResolvedValue({
     epochChanged: false,
@@ -321,6 +322,17 @@ describe('App', () => {
 
     expect(await screen.findByText('2タイル・1編成')).toBeInTheDocument()
     expect(screen.getByText('路線').closest('label')).toHaveTextContent('1')
+    await user.click(screen.getByRole('button', { name: '現在の設定を保存' }))
+    const saveDialog = screen.getByRole('dialog', { name: '路線網設定を保存' })
+    await user.type(within(saveDialog).getByRole('textbox'), 'テスト路線網')
+    await user.click(within(saveDialog).getByRole('button', { name: '保存' }))
+    expect(screen.getByRole('option', { name: 'テスト路線網' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '現在の設定を保存' }))
+    await user.click(within(screen.getByRole('dialog', { name: '路線網設定を保存' })).getByRole('button', { name: '保存' }))
+    expect(screen.getByRole('dialog', { name: '保存設定の上書き確認' })).toBeInTheDocument()
+    await user.click(within(screen.getByRole('dialog', { name: '保存設定の上書き確認' })).getByRole('button', { name: 'キャンセル' }))
+    await user.click(within(screen.getByRole('dialog', { name: '路線網設定を保存' })).getByRole('button', { name: 'キャンセル' }))
     vi.mocked(refreshPositions).mockResolvedValueOnce({
       epochChanged: false,
       time: selectableSnapshot.time,
@@ -349,6 +361,12 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: '選択解除' }))
     expect(screen.queryByText(/タイル・.*編成/)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '路線網を選択' })).toHaveAttribute('aria-pressed', 'false')
+    await user.click(screen.getByRole('button', { name: '読み込む' }))
+    expect(await screen.findByText('2タイル・0編成')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '削除' }))
+    const deleteDialog = screen.getByRole('dialog', { name: '保存設定の削除確認' })
+    await user.click(within(deleteDialog).getByRole('button', { name: '削除' }))
+    expect(screen.queryByRole('option', { name: 'テスト路線網' })).not.toBeInTheDocument()
   })
 
   it('選択モードでもドラッグと空白クリックでは線路網を選択しない', async () => {

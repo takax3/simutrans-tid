@@ -6,7 +6,12 @@ import {
   groupConvoysByPosition, topologyAfterCuts, wayTopologyKey, ZOOM_STEP, zoomByWheelDelta,
 } from './model'
 import { drawMap } from './mapRenderer'
+import {
+  createSavedTopology, loadSavedTopologies, parseSavedTopology, resolveSavedTopology,
+  storeSavedTopologies, topologyExportFilename,
+} from './savedTopology'
 import type { LayerVisibility, PositionGroup, Stop, ViewerSnapshot, WayTopologyTile } from './types'
+import type { SavedTopologySelection } from './savedTopology'
 
 const intervalOptions = [1_000, 2_000, 5_000, 10_000]
 const knownConvoyTypes = [
@@ -51,6 +56,12 @@ function App() {
   } | null>(null)
   const [confirmUncut, setConfirmUncut] = useState<WayTopologyTile | null>(null)
   const [topologyNotice, setTopologyNotice] = useState<string | null>(null)
+  const [savedTopologies, setSavedTopologies] = useState<SavedTopologySelection[]>(() => loadSavedTopologies())
+  const [selectedSavedTopologyId, setSelectedSavedTopologyId] = useState('')
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false)
+  const [saveName, setSaveName] = useState('')
+  const [pendingOverwrite, setPendingOverwrite] = useState<SavedTopologySelection | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<SavedTopologySelection | null>(null)
   const [layers, setLayers] = useState<LayerVisibility>({ ways: true, lines: true, convoys: true, stops: true })
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [hoveredGroup, setHoveredGroup] = useState<PositionGroup | null>(null)
@@ -58,6 +69,7 @@ function App() {
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
+  const importInputRef = useRef<HTMLInputElement>(null)
   const refreshInFlight = useRef(false)
   const refreshRef = useRef<() => Promise<void>>(async () => undefined)
   const zoomRef = useRef(zoom)
@@ -167,6 +179,100 @@ function App() {
     setConfirmUncut(null)
     setTopologyNotice(null)
   }, [])
+
+  const selectedSavedTopology = savedTopologies.find((item) => item.id === selectedSavedTopologyId) ?? null
+
+  const persistSavedTopologies = useCallback((next: SavedTopologySelection[], message: string): boolean => {
+    try {
+      storeSavedTopologies(next)
+      setSavedTopologies(next)
+      setTopologyNotice(message)
+      return true
+    } catch {
+      setTopologyNotice('ブラウザへ保存できませんでした。保存容量や設定を確認してください。')
+      return false
+    }
+  }, [])
+
+  const finishSave = (saved: SavedTopologySelection) => {
+    const next = savedTopologies.some((item) => item.id === saved.id)
+      ? savedTopologies.map((item) => item.id === saved.id ? saved : item)
+      : [...savedTopologies, saved]
+    if (persistSavedTopologies(next, '路線網設定を保存しました。')) {
+      setSelectedSavedTopologyId(saved.id)
+      setSaveDialogOpen(false)
+      setSaveName('')
+      setPendingOverwrite(null)
+    }
+  }
+
+  const requestSave = () => {
+    if (!topologySeed || !snapshot || saveName.trim() === '') return
+    const existing = savedTopologies.find((item) => item.name === saveName.trim())
+    const saved = createSavedTopology(
+      saveName,
+      topologySeed,
+      cutTopologyTiles,
+      snapshot.map.size,
+      existing,
+    )
+    if (existing) setPendingOverwrite(saved)
+    else finishSave(saved)
+  }
+
+  const loadSelectedSavedTopology = () => {
+    if (!selectedSavedTopology || !snapshot) return
+    const resolved = resolveSavedTopology(selectedSavedTopology, snapshot.wayTopology)
+    if (!resolved.seed) {
+      setTopologyNotice('保存された起点が現在のトポロジに存在しないため、読み込めませんでした。')
+      return
+    }
+    setSelectedConvoyTypes((current) => new Set(current).add(resolved.seed!.waytype))
+    setLayers((current) => ({ ...current, ways: true }))
+    setTopologySeed(resolved.seed)
+    setCutTopologyTiles(resolved.cuts)
+    setTopologyTool(null)
+    setTopologyCandidates(null)
+    setConfirmUncut(null)
+    setTopologyNotice(resolved.missingCuts > 0
+      ? `設定を読み込みました。見つからない切断位置 ${resolved.missingCuts}件は省略しました。`
+      : '路線網設定を読み込みました。')
+  }
+
+  const exportSelectedSavedTopology = () => {
+    if (!selectedSavedTopology) return
+    try {
+      const blob = new Blob([JSON.stringify(selectedSavedTopology, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = topologyExportFilename(selectedSavedTopology.name)
+      anchor.click()
+      URL.revokeObjectURL(url)
+      setTopologyNotice('JSONを出力しました。')
+    } catch {
+      setTopologyNotice('JSONを出力できませんでした。')
+    }
+  }
+
+  const importSavedTopology = async (file: File) => {
+    try {
+      const imported = parseSavedTopology(JSON.parse(await file.text()))
+      const existing = savedTopologies.find((item) => item.name === imported.name)
+      const idCollision = savedTopologies.some((item) => item.id === imported.id && item.id !== existing?.id)
+      const normalized = existing
+        ? { ...imported, id: existing.id, createdAt: existing.createdAt, updatedAt: new Date().toISOString() }
+        : { ...imported, id: idCollision ? `${Date.now()}-${Math.random().toString(36).slice(2)}` : imported.id }
+      if (existing) setPendingOverwrite(normalized)
+      else if (persistSavedTopologies([...savedTopologies, normalized], 'JSONを読み込みました。')) {
+        setSelectedSavedTopologyId(normalized.id)
+      }
+    } catch (caught) {
+      setTopologyNotice(caught instanceof Error ? caught.message : 'JSONを読み込めませんでした。')
+    } finally {
+      if (importInputRef.current) importInputRef.current.value = ''
+    }
+  }
 
   const toggleConvoyType = (waytype: string) => {
     if (!convoyTypeCounts.has(waytype)) return
@@ -755,8 +861,43 @@ function App() {
                   }}
                 >路線網を切断</button>
                 <button type="button" disabled title="未実装">TID表示を作成 <small>未実装</small></button>
+                <button type="button" onClick={() => {
+                  setSaveName(selectedSavedTopology?.name ?? '')
+                  setSaveDialogOpen(true)
+                  setTopologyNotice(null)
+                }}>現在の設定を保存</button>
               </>
             )}
+            <div className="saved-topology-controls">
+              <label>
+                <span>保存設定</span>
+                <select
+                  aria-label="保存した路線網設定"
+                  value={selectedSavedTopologyId}
+                  onChange={(event) => setSelectedSavedTopologyId(event.target.value)}
+                >
+                  <option value="">選択してください</option>
+                  {savedTopologies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </label>
+              <div>
+                <button type="button" disabled={!selectedSavedTopology} onClick={loadSelectedSavedTopology}>読み込む</button>
+                <button type="button" disabled={!selectedSavedTopology} onClick={exportSelectedSavedTopology}>JSON出力</button>
+                <button type="button" disabled={!selectedSavedTopology} onClick={() => setPendingDelete(selectedSavedTopology)}>削除</button>
+              </div>
+              <button type="button" onClick={() => importInputRef.current?.click()}>JSON読込</button>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept="application/json,.json"
+                aria-label="路線網設定JSONファイル"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void importSavedTopology(file)
+                }}
+              />
+            </div>
             {topologyNotice && <p role="alert">{topologyNotice}</p>}
           </div>
           <div className="map-zoom-overlay" aria-label="ズーム操作">
@@ -795,6 +936,54 @@ function App() {
                     setCutTopologyTiles((current) => current.filter((tile) => wayTopologyKey(tile) !== key))
                     setConfirmUncut(null)
                   }}>切断を解除</button>
+                </div>
+              </div>
+            </div>
+          )}
+          {saveDialogOpen && (
+            <div className="topology-confirm-backdrop">
+              <form className="topology-confirm" role="dialog" aria-modal="true" aria-label="路線網設定を保存" onSubmit={(event) => {
+                event.preventDefault()
+                requestSave()
+              }}>
+                <strong>現在の設定を保存</strong>
+                <label className="save-name-field">
+                  <span>保存名</span>
+                  <input autoFocus value={saveName} onChange={(event) => setSaveName(event.target.value)} />
+                </label>
+                <div>
+                  <button type="button" onClick={() => setSaveDialogOpen(false)}>キャンセル</button>
+                  <button type="submit" className="confirm-primary" disabled={saveName.trim() === ''}>保存</button>
+                </div>
+              </form>
+            </div>
+          )}
+          {pendingOverwrite && (
+            <div className="topology-confirm-backdrop">
+              <div className="topology-confirm" role="dialog" aria-modal="true" aria-label="保存設定の上書き確認">
+                <strong>「{pendingOverwrite.name}」を上書きしますか？</strong>
+                <p>既存の起点と切断位置が新しい内容に置き換わります。</p>
+                <div>
+                  <button type="button" onClick={() => setPendingOverwrite(null)}>キャンセル</button>
+                  <button type="button" className="confirm-primary" onClick={() => finishSave(pendingOverwrite)}>上書き</button>
+                </div>
+              </div>
+            </div>
+          )}
+          {pendingDelete && (
+            <div className="topology-confirm-backdrop">
+              <div className="topology-confirm" role="dialog" aria-modal="true" aria-label="保存設定の削除確認">
+                <strong>「{pendingDelete.name}」を削除しますか？</strong>
+                <p>現在マップに表示している路線網には影響しません。</p>
+                <div>
+                  <button type="button" onClick={() => setPendingDelete(null)}>キャンセル</button>
+                  <button type="button" className="confirm-primary" onClick={() => {
+                    const next = savedTopologies.filter((item) => item.id !== pendingDelete.id)
+                    if (persistSavedTopologies(next, '保存設定を削除しました。')) {
+                      if (selectedSavedTopologyId === pendingDelete.id) setSelectedSavedTopologyId('')
+                      setPendingDelete(null)
+                    }
+                  }}>削除</button>
                 </div>
               </div>
             </div>
